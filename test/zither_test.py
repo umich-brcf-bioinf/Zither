@@ -17,7 +17,7 @@ try:
 except ImportError:
     from io import StringIO
 
-class _SamFlag(object): 
+class _BamFlag(object): 
     #the read is paired in sequencing, no matter whether it is mapped in a pair
     PAIRED = 1 
     # the read is mapped in a proper pair
@@ -50,15 +50,15 @@ def _create_file(path, filename, contents):
         new_file.write(contents)
     return filename
 
-def _create_bam(dir, sam_contents):
-    test_input_sam = os.path.join(dir, "test.sam")
+def _create_bam(dir, sam_contents, filename="test.sam"):
+    test_input_sam = os.path.join(dir, filename)
+    bam_filename = test_input_sam.replace(".sam", ".bam")
     sam_file = open(test_input_sam, "w")
     sam_file.write(sam_contents)
     sam_file.close()
-    test_input_bam = os.path.join(dir, "test.bam")
-    call(["samtools view -S -b "+ test_input_sam + " -o " + test_input_bam + " 2>/dev/null "], shell=True)
-    call(["samtools index " + test_input_bam + " 2>/dev/null "], shell=True)
-    return test_input_bam
+    call(["samtools view -S -b "+ test_input_sam + " -o " + bam_filename + " 2>/dev/null "], shell=True)
+    call(["samtools index " + bam_filename + " 2>/dev/null "], shell=True)
+    return bam_filename
                     
 def _get_zither_metaheader(lines):
     for line in lines:
@@ -66,10 +66,10 @@ def _get_zither_metaheader(lines):
             return line
     return None
     
-class ReaderTestCase(unittest.TestCase):
+class ZitherBaseTestCase(unittest.TestCase):
     def setUp(self):
         unittest.TestCase.setUp(self)
-        self.simple_forward_read = _SamFlag.PAIRED + _SamFlag.PROPER_PAIR + _SamFlag.MREVERSE + _SamFlag.READ1
+        self.simple_forward_read = _BamFlag.PAIRED + _BamFlag.PROPER_PAIR + _BamFlag.MREVERSE + _BamFlag.READ1
         self.stdout = StringIO()
         self.saved_stdout = sys.stdout
         sys.stdout = self.stdout
@@ -92,8 +92,9 @@ class ReaderTestCase(unittest.TestCase):
             else:
                 self.assertEquals(expected[i].rstrip(),
                                   actual[i].rstrip())
-
     
+    
+class BamReaderTestCase(ZitherBaseTestCase):
     def test_get_depth_and_alt_freq(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
@@ -103,7 +104,7 @@ readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
 '''
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals((0, '.'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=4, ref="C", alt="A"))
             self.assertEquals((1, '1.0'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A"))
             self.assertEquals((2, '0.5'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=6, ref="C", alt="A"))
@@ -117,7 +118,7 @@ readNameB	99	chr10	5	0	1M1D1M	=	105	0	CG	>>
 '''
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals(2, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A")[0])
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=6, ref="C", alt="A")[0])
             self.assertEquals(2, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=7, ref="C", alt="A")[0])
@@ -131,7 +132,7 @@ readNameB	99	chr10	5	0	1M1N1M	=	105	0	CG	>>
 '''
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals(2, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A")[0])
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=6, ref="C", alt="A")[0])
             self.assertEquals(2, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=7, ref="C", alt="A")[0])
@@ -144,7 +145,7 @@ readNameA	99	chr10	5	0	3M	=	105	0	AAA	>>>
 '''
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals((1,'1.0'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="a"))
             self.assertEquals((1,'1.0'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A"))
 
@@ -156,7 +157,7 @@ readNameA	99	chr10	5	0	3M	=	105	0	AAA	>>>
 '''
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals((1,'.'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="A", alt="ATA"))
             self.assertEquals((1,'.'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="ATA", alt="A"))
  
@@ -169,7 +170,7 @@ readNameA	99	chr10	5	0	4M2I4M	=	105	0	ACGTTTACGT	>>>>>>>>>>
 '''
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals((2,'1.0'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A"))
             self.assertEquals((2,'1.0'), reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=9, ref="C", alt="A"))
 
@@ -182,7 +183,7 @@ readNameA	147	chr10	7	0	4M	=	105	0	TTTT	>>>>
 '''
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A")[0])
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=6, ref="C", alt="A")[0])
             self.assertEquals(2, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=7, ref="C", alt="A")[0])
@@ -205,7 +206,7 @@ readNameA	99	chr10	5	0	5M	=	105	0	AAAAA	50+&!
         #20 5
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A")[0])
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=6, ref="C", alt="A")[0])
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=7, ref="C", alt="A")[0])
@@ -218,10 +219,10 @@ readNameA	99	chr10	5	0	5M	=	105	0	AAAAA	50+&!
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
 readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
-'''.format(self.simple_forward_read + _SamFlag.DUP)
+'''.format(self.simple_forward_read + _BamFlag.DUP)
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A")[0])
             
     def test_get_depth_and_alt_freq_failedQualityCounted(self):
@@ -229,10 +230,10 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
 readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
-'''.format(self.simple_forward_read + _SamFlag.QCFAIL)
+'''.format(self.simple_forward_read + _BamFlag.QCFAIL)
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A")[0])
             
     def test_get_depth_and_alt_freq_secondaryReadsCounted(self):
@@ -240,17 +241,18 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
 readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
-'''.format(self.simple_forward_read + _SamFlag.SECONDARY)
+'''.format(self.simple_forward_read + _BamFlag.SECONDARY)
         with TempDirectory() as tmp_dir:    
             input_bam = _create_bam(tmp_dir.path, sam_contents)
-            reader = zither.Reader(input_bam)
+            reader = zither._BamReader(input_bam)
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A")[0])
 
-    def test_create_vcf(self):
+class ZitherTestCase(ZitherBaseTestCase):
+    def test_create_vcf_singleSample(self):
         input_vcf_contents = \
 '''##fileformat=VCFv4.1
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_A
-chr1	10	.	A	C	.	.	.	GT	0/1
+chr1	10	.	A	C	QAULStuff	FILTERStuff	INFOStuff	GT	0/1
 chr10	10	.	C	G	.	.	.	GT	0/1
 chr15	42	.	G	T	.	.	.	GT	0/1
 '''
@@ -284,14 +286,69 @@ chr15	42	.	G	T	.	.	.	BDP:BAF	4:0.75
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            input_bam = _create_bam(tmp_path, sam_contents)
-            reader = zither.Reader(input_bam)
+            _create_bam(tmp_path, sam_contents, "sample_A.sam")
             
-            reader.create_vcf(input_vcf)
+            zither._create_vcf(input_vcf)
         
             actual_output_lines = self.stdout.getvalue()
             
             self._compare_lines(expected_vcf_contents, actual_output_lines)
+
+            
+    def test_create_vcf_multipleSamples(self):
+        input_vcf_contents = \
+'''##fileformat=VCFv4.1
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_A	sample_B
+chr1	10	.	A	C	QAULStuff	FILTERStuff	INFOStuff	GT	0/1	0/1
+chr10	10	.	C	G	.	.	.	GT	0/1	0/1
+'''
+
+        sam_contents_A = \
+'''@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr1	LN:10
+@SQ	SN:chr10	LN:10
+readA	99	chr1	10	0	1M	=	105	0	A	>
+readB	99	chr1	10	0	1M	=	105	0	A	>
+readC	99	chr1	10	0	1M	=	105	0	A	>
+readD	99	chr10	10	0	1M	=	105	0	C	>
+readE	99	chr10	10	0	1M	=	105	0	C	>
+readF	99	chr10	10	0	1M	=	105	0	C	>
+'''
+
+        sam_contents_B = \
+'''@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr1	LN:10
+@SQ	SN:chr10	LN:10
+readA	99	chr1	10	0	1M	=	105	0	C	>
+readB	99	chr1	10	0	1M	=	105	0	C	>
+readC	99	chr10	10	0	1M	=	105	0	C	>
+readD	99	chr10	10	0	1M	=	105	0	G	>
+'''
+
+
+        expected_vcf_contents = \
+'''##fileformat=VCFv4.1
+##FORMAT=<ID=BDP,Number=1,Type=Integer,Description="BAM depth">
+##FORMAT=<ID=BAF,Number=1,Type=Float,Description="BAM alt frequency">
+##zither=<timestamp=...
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_A	sample_B
+chr1	10	.	A	C	.	.	.	BDP:BAF	3:0.0	2:1.0
+chr10	10	.	C	G	.	.	.	BDP:BAF	3:0.0	2:0.5
+'''
+
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
+            _create_bam(tmp_path, sam_contents_A, "sample_A.sam")
+            _create_bam(tmp_path, sam_contents_B, "sample_B.sam")
+             
+            zither._create_vcf(input_vcf)
+        
+            actual_output_lines = self.stdout.getvalue()
+            
+            self._compare_lines(expected_vcf_contents, actual_output_lines)
+            
+            
 
     def test_create_vcf_missingBAMLocationsOk(self):
         input_vcf_contents = \
@@ -323,10 +380,9 @@ chr10	10	.	C	G	.	.	.	BDP:BAF	0:.
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            input_bam = _create_bam(tmp_path, sam_contents)
-            reader = zither.Reader(input_bam)
+            _create_bam(tmp_path, sam_contents, "sample_A.sam")
             
-            reader.create_vcf(input_vcf)
+            zither._create_vcf(input_vcf)
         
             actual_output_lines = self.stdout.getvalue()
             self._compare_lines(expected_vcf_contents, actual_output_lines)
@@ -360,10 +416,9 @@ chr1	10	.	A	C,G	.	.	.	BDP:BAF	3:.
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            input_bam = _create_bam(tmp_path, sam_contents)
-            reader = zither.Reader(input_bam)
+            _create_bam(tmp_path, sam_contents, "sample_A.sam")
             
-            reader.create_vcf(input_vcf)
+            zither._create_vcf(input_vcf)
         
             actual_output_lines = self.stdout.getvalue()
             
@@ -386,10 +441,9 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            input_bam = _create_bam(tmp_path, sam_contents)
-            reader = zither.Reader(input_bam)
+            _create_bam(tmp_path, sam_contents, "sample_A.sam")
 
-            reader.create_vcf(input_vcf)
+            zither._create_vcf(input_vcf)
         
             actual_output_lines = self.stdout.getvalue().split("\n")
             
