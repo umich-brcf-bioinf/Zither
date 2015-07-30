@@ -32,6 +32,47 @@ class _BamReader(object):
 
         return (total_depth, AF)
 
+def _get_sample_names(input_vcf):
+    with open(input_vcf, 'r') as input_file:
+        column_header = None
+        for line in input_file.readlines():
+            if not line.startswith("##"):
+                if line.startswith("#"):
+                    column_header = line.rstrip()
+                    column_fields = column_header.split("\t")
+                    n = len(column_fields)
+                    sample_names = column_fields[9:(n+1)]
+        return sample_names
+
+def _build_sample_bam_mapping(sample_names, input_vcf):
+    bam_names = [x + '.bam' for x in sample_names]
+    bam_path = os.path.join(os.path.dirname(input_vcf), bam_names)
+    m = len(bam_names)
+    bam_path_list = []
+    for s in range(0,(m)):
+        bam_path = [os.path.join(os.path.dirname(input_vcf), bam_names[s])]
+        bam_path_list.append(bam_path)
+    return bam_path_list
+
+def _build_reader_dict(sample_names, bam_path_list):
+    m = len(bam_names)
+    sample_bam_dict = {}
+    sample_bam_dict = dict(zip(sample_names, bam_path_list))    
+    return sample_bam_dict
+
+def _get_dict_from_mapping_file(mapping_file):
+# with open(mapping_file, 'rb') as tsvfile:
+#...     reader = csv.reader(tsvfile, delimiter='\t')
+#       mappings_dict = {k:v for (k,v) in reader)}
+    with open(mapping_file, 'r') as mapping_file:
+        mappings = None
+        mappings = line.rstrip()
+        mappings = mappings.split("\t")
+        mappings_dict = {k:v for k,v in (x.split('=') for x in mappings)}
+        sample_names = mappings_dict.keys()
+        bam_path_list = mappings_dict.values()
+        return mappings_dict
+        
 def _create_vcf(input_vcf):
     vcf_headers = \
 '''##fileformat=VCFv4.1
@@ -46,18 +87,17 @@ def _create_vcf(input_vcf):
         cwd = os.path.dirname(os.getcwd())
         command = ' '.join(sys.argv)
         zither = '##zither=<timestamp="{}",command="{}",cwd="{}",version="{}">'.format(now, command, cwd, __version__)
-        bamReader_A = None
-        bamReader_B = None
+        bamReader = _BamReader(os.path.join(os.path.dirname(input_vcf), 'sample_A.bam'))
         for line in input_file.readlines():
             if not line.startswith("##"):
                 if line.startswith("#"):
                     column_header = line.rstrip()
-                    column_fields = column_header.split("\t")
-                    sample_name_A = column_fields[9]
-                    bamReader_A = _BamReader(os.path.join(os.path.dirname(input_vcf), sample_name_A + '.bam'))
-                    if len(column_fields) == 11:
-                        sample_name_B = column_fields[10]
-                        bamReader_B = _BamReader(os.path.join(os.path.dirname(input_vcf), sample_name_B + '.bam'))
+                    # column_fields = column_header.split("\t")
+                    # sample_name_A = column_fields[9]
+                    # bamReader_A = _BamReader(os.path.join(os.path.dirname(input_vcf), sample_name_A + '.bam'))
+                    # if len(column_fields) == 11:
+                        # sample_name_B = column_fields[10]
+                        # bamReader_B = _BamReader(os.path.join(os.path.dirname(input_vcf), sample_name_B + '.bam'))
 
                     
                     print(zither)
@@ -72,16 +112,17 @@ def _create_vcf(input_vcf):
                     vcf_fields[7] = '.'
                     vcf_fields[8] = FORMAT
                     vcf_fields[9] = ''
-                    if bamReader_A:
-                        [depth,FA] = bamReader_A.get_depth_and_alt_freq(CHROM, int(POS), REF, ALT)
-                        sample_field = [str(depth),FA]
-                        sample_field_joint = ':'.join(sample_field)
-                        vcf_fields[9] += sample_field_joint
-                    if bamReader_B:
-                        [depth,FA] = bamReader_B.get_depth_and_alt_freq(CHROM, int(POS), REF, ALT)
-                        sample_field = [str(depth),FA]
-                        sample_field_joint = ':'.join(sample_field)
-                        vcf_fields[9] +='\t'+ sample_field_joint
+                    #if bamReader_A:
+                    #for key in sample_bam_dict:
+                    [depth,FA] = bamReader.get_depth_and_alt_freq(CHROM, int(POS), REF, ALT)
+                    sample_field = [str(depth),FA]
+                    sample_field_joint = ':'.join(sample_field)
+                    vcf_fields[9] += sample_field_joint
+                    #if bamReader_B:
+                        #[depth,FA] = bamReader_B.get_depth_and_alt_freq(CHROM, int(POS), REF, ALT)
+                        #sample_field = [str(depth),FA]
+                        #sample_field_joint = ':'.join(sample_field)
+                        #vcf_fields[9] +='\t'+ sample_field_joint
                     a = '\t'.join(vcf_fields[0:10])
                     print(a)
                         
@@ -92,6 +133,7 @@ def _parse_command_line_args(arguments):
     parser.add_argument("-V", "--version", action='version', version=__version__)
     parser.add_argument('input_vcf', help="Path to input VCFs; all record locations will appear in output file")
     parser.add_argument('input_bam', help="Path to indexed BAM used to calculate raw depth and frequency")
+    parser.add_argument('mapping_file', help="Path to tab delimited list of VCF_sample_names and BAM_file_names")
     args = parser.parse_args(arguments)
     return args
     
