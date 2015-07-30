@@ -1,16 +1,17 @@
 from __future__ import print_function, absolute_import, division
 
-from zither import __version__
-import zither.zither as zither
+from argparse import Namespace
 import datetime
 import filecmp
 import os
-from testfixtures import TempDirectory
-import unittest
 import re
 from subprocess import call
 import sys
+from testfixtures import TempDirectory
 import time
+import unittest
+from zither import __version__
+import zither.zither as zither
 
 try:
     from StringIO import StringIO
@@ -96,6 +97,43 @@ class ZitherBaseTestCase(unittest.TestCase):
     
     
 class BamReaderTestCase(ZitherBaseTestCase):
+    def test_equals(self):
+        sam_contents = \
+'''@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr1	LN:10
+readA	99	chr1	10	0	1M	=	105	0	A	>
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            bam_A = _create_bam(tmp_path, sam_contents, "sample_A.sam")
+            bam_B = _create_bam(tmp_path, sam_contents, "sample_B.sam")
+
+            base = zither._BamReader(bam_A)
+            base_equivalent = zither._BamReader(bam_A)
+            self.assertEquals(base, base_equivalent)
+            different_file = zither._BamReader(bam_B)
+            self.assertNotEquals(base, different_file)
+ 
+    def testHash(self):
+        sam_contents = \
+'''@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr1	LN:10
+readA	99	chr1	10	0	1M	=	105	0	A	>
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            bam_A = _create_bam(tmp_path, sam_contents, "sample_A.sam")
+
+            base = zither._BamReader(bam_A)
+            base_equivalent = zither._BamReader(bam_A)
+            self.assertEquals(base.__hash__(), base_equivalent.__hash__())
+            
+            reader_set = set()
+            reader_set.add(base)
+            reader_set.add(base_equivalent)
+            self.assertEquals(1, len(reader_set))
+
+
     def test_get_depth_and_alt_freq(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
@@ -287,16 +325,17 @@ chr15	42	.	G	T	.	.	.	BDP:BAF	4:0.75
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            _create_bam(tmp_path, sam_contents, "sample_A.sam")
+            bam_A = _create_bam(tmp_path, sam_contents, "sample_A.sam")
 
-            zither._create_vcf(input_vcf)
+            sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
+            zither._create_vcf(input_vcf, sample_reader_dict)
         
             actual_output_lines = self.stdout.getvalue()
             
             self._compare_lines(expected_vcf_contents, actual_output_lines)
 
             
-    def Xtest_create_vcf_multipleSamples(self):
+    def test_create_vcf_multipleSamples(self):
         input_vcf_contents = \
 '''##fileformat=VCFv4.1
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_A	sample_B
@@ -340,10 +379,11 @@ chr10	10	.	C	G	.	.	.	BDP:BAF	3:0.0	2:0.5
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            _create_bam(tmp_path, sam_contents_A, "sample_A.sam")
-            _create_bam(tmp_path, sam_contents_B, "sample_B.sam")
+            bam_A = _create_bam(tmp_path, sam_contents_A, "sample_A.sam")
+            bam_B = _create_bam(tmp_path, sam_contents_B, "sample_B.sam")
              
-            zither._create_vcf(input_vcf)
+            sample_reader_dict = {"sample_A": zither._BamReader(bam_A), "sample_B": zither._BamReader(bam_B)}
+            zither._create_vcf(input_vcf, sample_reader_dict)
         
             actual_output_lines = self.stdout.getvalue()
             
@@ -381,9 +421,10 @@ chr10	10	.	C	G	.	.	.	BDP:BAF	0:.
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            _create_bam(tmp_path, sam_contents, "sample_A.sam")
+            bam_A = _create_bam(tmp_path, sam_contents, "sample_A.sam")
             
-            zither._create_vcf(input_vcf)
+            sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
+            zither._create_vcf(input_vcf, sample_reader_dict)
         
             actual_output_lines = self.stdout.getvalue()
             self._compare_lines(expected_vcf_contents, actual_output_lines)
@@ -417,9 +458,11 @@ chr1	10	.	A	C,G	.	.	.	BDP:BAF	3:.
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            _create_bam(tmp_path, sam_contents, "sample_A.sam")
+            bam_A = _create_bam(tmp_path, sam_contents, "sample_A.sam")
             
-            zither._create_vcf(input_vcf)
+            sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
+            zither._create_vcf(input_vcf, sample_reader_dict)
+
         
             actual_output_lines = self.stdout.getvalue()
             
@@ -442,9 +485,10 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
-            _create_bam(tmp_path, sam_contents, "sample_A.sam")
+            bam_A = _create_bam(tmp_path, sam_contents, "sample_A.sam")
 
-            zither._create_vcf(input_vcf)
+            sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
+            zither._create_vcf(input_vcf, sample_reader_dict)
         
             actual_output_lines = self.stdout.getvalue().split("\n")
             
@@ -458,3 +502,77 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             self.assertStartsWith(tags[2], 'cwd="')
             self.assertEquals('version="'+__version__+'"', tags[3])
      
+            
+    def test_build_reader_dict(self):
+        sam_contents = \
+'''@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr1	LN:10
+readA	99	chr1	10	0	1M	=	105	0	A	>
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            bam_A = _create_bam(tmp_path, sam_contents, "sample_A.sam")
+            bam_B = _create_bam(tmp_path, sam_contents, "sample_B.sam")
+
+            sample_bam_mapping = {'sA':bam_A, 'sB':bam_B}
+            actual_sample_reader_mapping = zither._build_reader_dict(sample_bam_mapping)
+            self.assertEquals(["sA", "sB"],  sorted(actual_sample_reader_mapping.keys()))
+            self.assertEquals(zither._BamReader(bam_A),  actual_sample_reader_mapping["sA"])
+            self.assertEquals(zither._BamReader(bam_B),  actual_sample_reader_mapping["sB"])
+    
+    def test_get_sample_bam_strategy(self):
+        input_vcf_contents = \
+'''##fileformat=VCFv4.1
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_A
+chr1	10	.	A	C	.	.	.	GT	0/1
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            vcf_filename = _create_file(tmp_path, "foo.vcf", input_vcf_contents)
+            args = Namespace(input_vcf=vcf_filename)
+            actual_strategy = zither.get_sample_bam_strategy(args)
+        
+            self.assertIsInstance(actual_strategy, zither._MatchingNameStrategy)
+        
+        
+        
+    
+class MatchingNameStrategyTestCase(ZitherBaseTestCase):
+    def test_build_dict_from_matching_bams(self):
+        actual_mapping = zither._MatchingNameStrategy(["sA", "sB"], "/foo/bar/input.vcf")._build_sample_bam_mapping()        
+        self.assertEquals(["sA", "sB"],  sorted(actual_mapping.keys()))
+        self.assertEquals("/foo/bar/sA.bam",  actual_mapping["sA"])
+        self.assertEquals("/foo/bar/sB.bam",  actual_mapping["sB"])
+
+    def test_build_dict_from_matching_bams_emptySampleList(self):
+        actual_mapping = zither._MatchingNameStrategy([], "/foo/bar/input.vcf")._build_sample_bam_mapping()        
+        self.assertEquals([],  actual_mapping.keys())
+
+class MappingFileStrategyTestCase(ZitherBaseTestCase):      
+    def test_build_dict_from_mapping_file(self):
+        mapping_file_contents = \
+'''sA	/foo/bar/sA.bam
+sB	/foo/bar/sB.bam
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            mapping_file = _create_file(tmp_path, "mapping_file.txt", mapping_file_contents)
+
+            actual_mapping = zither._MappingFileStrategy(mapping_file)._build_sample_bam_mapping()
+            self.assertEquals(["sA", "sB"],  sorted(actual_mapping.keys()))
+            self.assertEquals("/foo/bar/sA.bam",  actual_mapping["sA"])
+            self.assertEquals("/foo/bar/sB.bam",  actual_mapping["sB"])
+
+    def test_build_dict_from_mapping_file_invalidMappingFile(self):
+        mapping_file_contents = \
+'''sA
+sB	/foo/bar/sB.bam
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            mapping_file = _create_file(tmp_path, "mapping_file.txt", mapping_file_contents)
+            
+            strategy = zither._MappingFileStrategy(mapping_file)
+            
+            self.assertRaises(ValueError,
+                strategy._build_sample_bam_mapping)
