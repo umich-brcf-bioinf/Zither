@@ -11,7 +11,7 @@ class _MappingFileStrategy(object):
     def __init__(self, mapping_file):
         self._mapping_file = mapping_file
 
-    def _build_sample_bam_mapping(self):
+    def build_sample_bam_mapping(self):
         with open(self._mapping_file, 'rb') as tsvfile:
             reader = csv.reader(tsvfile, delimiter='\t')
             sample_bam_mapping = {k:v for (k,v) in reader}
@@ -22,7 +22,7 @@ class _MatchingNameStrategy(object):
         self._sample_names = sample_names
         self._input_vcf_path = input_vcf_path
 
-    def _build_sample_bam_mapping(self):
+    def build_sample_bam_mapping(self):
         sample_bam_mapping = {}
         bam_dir = os.path.dirname(self._input_vcf_path)
         for sample_name in self._sample_names:
@@ -31,9 +31,15 @@ class _MatchingNameStrategy(object):
         return sample_bam_mapping
 
         
-def get_sample_bam_strategy(args):
-    sample_names = _get_sample_names(args.input_vcf)
-    return _MatchingNameStrategy(sample_names, args.input_vcf)
+def _get_sample_bam_strategy(args):
+    #if my args haev a smaple mappinhg file
+    # then return MappingFileStrtegy
+    #else:
+    if args.mapping_file:
+        return _MappingFileStrategy(args.mapping_file)
+    else:
+        sample_names = _get_sample_names(args.input_vcf)
+        return _MatchingNameStrategy(sample_names, args.input_vcf)
             
 class _BamReader(object):
     def __init__(self, bam_file_name):
@@ -131,15 +137,17 @@ def _parse_command_line_args(arguments):
 
     parser.add_argument("-V", "--version", action='version', version=__version__)
     parser.add_argument('input_vcf', help="Path to input VCFs; all record locations will appear in output file")
-    parser.add_argument('input_bam', help="Path to indexed BAM used to calculate raw depth and frequency")
-    parser.add_argument('mapping_file', help="Path to tab delimited list of VCF_sample_names and BAM_file_names")
+    parser.add_argument('--mapping_file', help="Path to tab delimited list of VCF_sample_names and BAM_file_names")
     args = parser.parse_args(arguments)
     return args
     
         
-def main():
-    args = _parse_command_line_args(sys.argv[1:])
-    _create_vcf(args.input_vcf)
+def main(command_line_args=sys.argv):
+    args = _parse_command_line_args(command_line_args[1:])
+    strategy = _get_sample_bam_strategy(args)
+    sample_bam_mapping = strategy.build_sample_bam_mapping()
+    reader_dict = _build_reader_dict(sample_bam_mapping)
+    _create_vcf(args.input_vcf, reader_dict)
 
 if __name__ == '__main__':
     main()

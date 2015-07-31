@@ -1,0 +1,4 @@
+##fileformat=VCFv4.1
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_A	sample_B
+chr1	10	.	A	C	QAULStuff	FILTERStuff	INFOStuff	GT	0/1	0/1
+chr10	10	.	C	G	.	.	.	GT	0/1	0/1

@@ -1,0 +1,9 @@
+@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr1	LN:10
+@SQ	SN:chr10	LN:10
+readA	99	chr1	10	0	1M	=	105	0	A	>
+readB	99	chr1	10	0	1M	=	105	0	A	>
+readC	99	chr1	10	0	1M	=	105	0	A	>
+readD	99	chr10	10	0	1M	=	105	0	C	>
+readE	99	chr10	10	0	1M	=	105	0	C	>
+readF	99	chr10	10	0	1M	=	105	0	C	>
