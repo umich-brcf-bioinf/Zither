@@ -540,17 +540,32 @@ chr1	10	.	A	C	.	.	.	GT	0/1
             self.assertIsInstance(actual_strategy, zither._MappingFileStrategy)
     
     def test_main_matching_names(self):
-        args = ["zither", "/ccmb/BioinfCore/SoftwareDev/projects/zither/examples/matching_names/input.vcf"]
-        expected_vcf_filename ="/ccmb/BioinfCore/SoftwareDev/projects/zither/examples/matching_names/expected_output.vcf"
+        dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),'..')
+        args = ["zither", os.path.join(dir_path, "examples/matching_names/input.vcf")]
+        expected_vcf_filename = os.path.join(dir_path, "examples/matching_names/expected_output.vcf")
         with open(expected_vcf_filename, 'r') as expected_vcf:
             expected_vcf_contents = expected_vcf.read()
             zither.main(args)
             actual_output_lines = self.stdout.getvalue()    
             self._compare_lines(expected_vcf_contents, actual_output_lines)
-    
+
+    def test_main_mapping_file(self):
+        dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),'..')
+        args = ["zither", 
+                os.path.join(dir_path, "examples/mapping_files/input.vcf") ,
+                "--mapping_file",
+                os.path.join(dir_path, "examples/mapping_files/mapping_file.txt")]
+        expected_vcf_filename = os.path.join(dir_path, "examples/mapping_files/expected_output.vcf")
+        with open(expected_vcf_filename, 'r') as expected_vcf:
+            expected_vcf_contents = expected_vcf.read()
+            zither.main(args)
+            actual_output_lines = self.stdout.getvalue()    
+            self._compare_lines(expected_vcf_contents, actual_output_lines)
+
 class MatchingNameStrategyTestCase(ZitherBaseTestCase):
     def test_build_dict_from_matching_bams(self):
-        actual_mapping = zither._MatchingNameStrategy(["sA", "sB"], "/foo/bar/input.vcf").build_sample_bam_mapping()        
+        actual_mapping = zither._MatchingNameStrategy(["sA", "sB"], 
+                                                       "/foo/bar/input.vcf").build_sample_bam_mapping()        
         self.assertEquals(["sA", "sB"],  sorted(actual_mapping.keys()))
         self.assertEquals("/foo/bar/sA.bam",  actual_mapping["sA"])
         self.assertEquals("/foo/bar/sB.bam",  actual_mapping["sB"])

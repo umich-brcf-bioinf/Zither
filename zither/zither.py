@@ -4,18 +4,41 @@ import csv
 from zither import __version__
 from datetime import datetime
 import os
+import os.path
 import pysam
 import sys
+
 
 class _MappingFileStrategy(object):
     def __init__(self, mapping_file):
         self._mapping_file = mapping_file
 
+    def _abs_path(self, path):
+        mapping_dir_path = os.path.dirname(self._mapping_file)
+        if path != os.path.abspath(path):
+            path = os.path.abspath(os.path.join(mapping_dir_path, path))
+        return path
+        
     def build_sample_bam_mapping(self):
+        sample_bam_mapping = {}
+        mapping_dir_path = os.path.dirname(self._mapping_file)
         with open(self._mapping_file, 'rb') as tsvfile:
-            reader = csv.reader(tsvfile, delimiter='\t')
-            sample_bam_mapping = {k:v for (k,v) in reader}
-            return sample_bam_mapping
+            for sample_name, bam_path in csv.reader(tsvfile, delimiter='\t'):
+                sample_bam_mapping[sample_name] = self._abs_path(bam_path)
+        return sample_bam_mapping    
+            
+            # sample_bam_mapping = {k:v for (k,v) in reader}
+            # sample_bam_mapping_modified = {}
+            # mapping_dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),'..',"examples/mapping_files/")
+            # #if the bam is not absolute, then prepend mapping file dir 
+            # for bam_path in sample_bam_mapping.values():
+                # if bam_path != os.path.abspath(bam_path):
+                    # bam_path = mapping_dir_path + bam_path
+                    # for sample_name in sample_bam_mapping.keys():
+                        # sample_bam_mapping_modified[sample_name] = bam_path
+                    # return sample_bam_mapping_modified
+                # else:
+                    # return sample_bam_mapping
 
 class _MatchingNameStrategy(object):
     def __init__(self, sample_names, input_vcf_path):
@@ -32,9 +55,6 @@ class _MatchingNameStrategy(object):
 
         
 def _get_sample_bam_strategy(args):
-    #if my args haev a smaple mappinhg file
-    # then return MappingFileStrtegy
-    #else:
     if args.mapping_file:
         return _MappingFileStrategy(args.mapping_file)
     else:
@@ -76,6 +96,7 @@ class _BamReader(object):
 def _get_sample_names(input_vcf):
     with open(input_vcf, 'r') as input_file:
         column_header = None
+        sample_names = []
         for line in input_file.readlines():
             if not line.startswith("##"):
                 if line.startswith("#"):
