@@ -1,6 +1,7 @@
 from __future__ import print_function, absolute_import, division
 import argparse
 import csv
+from collections import OrderedDict
 from zither import __version__
 from datetime import datetime
 import os
@@ -8,6 +9,17 @@ import os.path
 import pysam
 import sys
 
+_VCF_FIXED_HEADERS = ["#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT"]
+
+class _ExplicitBamFileStrategy(object):
+    def __init__(self, bam_file_path):
+        self._bam_file_path = bam_file_path
+
+    def build_sample_bam_mapping(self):
+        sample_file = os.path.basename(self._bam_file_path)
+        sample_name = os.path.splitext(sample_file)[0]
+        return {sample_name: self._bam_file_path}
+        
 
 class _MappingFileStrategy(object):
     def __init__(self, mapping_file):
@@ -20,25 +32,12 @@ class _MappingFileStrategy(object):
         return path
         
     def build_sample_bam_mapping(self):
-        sample_bam_mapping = {}
+        sample_bam_mapping = OrderedDict()
         mapping_dir_path = os.path.dirname(self._mapping_file)
         with open(self._mapping_file, 'rb') as tsvfile:
             for sample_name, bam_path in csv.reader(tsvfile, delimiter='\t'):
                 sample_bam_mapping[sample_name] = self._abs_path(bam_path)
-        return sample_bam_mapping    
-            
-            # sample_bam_mapping = {k:v for (k,v) in reader}
-            # sample_bam_mapping_modified = {}
-            # mapping_dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),'..',"examples/mapping_files/")
-            # #if the bam is not absolute, then prepend mapping file dir 
-            # for bam_path in sample_bam_mapping.values():
-                # if bam_path != os.path.abspath(bam_path):
-                    # bam_path = mapping_dir_path + bam_path
-                    # for sample_name in sample_bam_mapping.keys():
-                        # sample_bam_mapping_modified[sample_name] = bam_path
-                    # return sample_bam_mapping_modified
-                # else:
-                    # return sample_bam_mapping
+        return sample_bam_mapping
 
 class _MatchingNameStrategy(object):
     def __init__(self, sample_names, input_vcf_path):
@@ -46,7 +45,7 @@ class _MatchingNameStrategy(object):
         self._input_vcf_path = input_vcf_path
 
     def build_sample_bam_mapping(self):
-        sample_bam_mapping = {}
+        sample_bam_mapping = OrderedDict()
         bam_dir = os.path.dirname(self._input_vcf_path)
         for sample_name in self._sample_names:
             bam_path = os.path.join(bam_dir, sample_name + ".bam")
@@ -57,6 +56,8 @@ class _MatchingNameStrategy(object):
 def _get_sample_bam_strategy(args):
     if args.mapping_file:
         return _MappingFileStrategy(args.mapping_file)
+    elif args.bam:
+        return _ExplicitBamFileStrategy(args.bam)
     else:
         sample_names = _get_sample_names(args.input_vcf)
         return _MatchingNameStrategy(sample_names, args.input_vcf)
@@ -107,11 +108,16 @@ def _get_sample_names(input_vcf):
         return sample_names
 
 def _build_reader_dict(sample_bam_mapping):
-    readers_dict = {}
+    readers_dict = OrderedDict()
     for (sample, bam_file) in sample_bam_mapping.items():
         readers_dict[sample] = _BamReader(bam_file)
     return readers_dict
 
+def _build_column_header_line(sample_names):
+    column_headers = list(_VCF_FIXED_HEADERS)
+    column_headers.extend(sample_names)
+    return '\t'.join(column_headers)
+    
 def _create_vcf(input_vcf, sample_reader_dict):
     vcf_headers = \
 '''##fileformat=VCFv4.1
@@ -125,32 +131,26 @@ def _create_vcf(input_vcf, sample_reader_dict):
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         cwd = os.path.dirname(os.getcwd())
         command = ' '.join(sys.argv)
-        zither = '##zither=<timestamp="{}",command="{}",cwd="{}",version="{}">'.format(now, command, cwd, __version__)
-
+        zither = '##zither=<timestamp="{}",command="{}",cwd="{}",version="{}">'.format(now, command, cwd, __version__)        
+        print(zither)
+        print(_build_column_header_line(sample_reader_dict.keys()))
         for line in input_file.readlines():
-            if not line.startswith("##"):
-                if line.startswith("#"):
-                    column_header = line.rstrip()
-                    sample_names = column_header.split("\t")[9:]
-                    print(zither)
-                    print(column_header)
-                    
-                else:
-                    vcf_fields = line.rstrip("\n").split("\t")[0:5]
-                    (CHROM, POS, ID, REF, ALT) = vcf_fields
-                    FORMAT = "BDP:BAF"
-                    vcf_fields.append('.')
-                    vcf_fields.append('.')
-                    vcf_fields.append('.')
-                    vcf_fields.append(FORMAT)
-                    for sample_name in sample_names:
-                        bam_reader = sample_reader_dict[sample_name]
-                        [depth,FA] = bam_reader.get_depth_and_alt_freq(CHROM, int(POS), REF, ALT)
-                        sample_field = [str(depth),FA]
-                        sample_field_joint = ':'.join(sample_field)
-                        vcf_fields.append(sample_field_joint)
-                    a = '\t'.join(vcf_fields)
-                    print(a)
+            if not line.startswith("#"):
+                vcf_fields = line.rstrip("\n").split("\t")[0:5]
+                (CHROM, POS, ID, REF, ALT) = vcf_fields
+                FORMAT = "BDP:BAF"
+                vcf_fields.append('.')
+                vcf_fields.append('.')
+                vcf_fields.append('.')
+                vcf_fields.append(FORMAT)
+                for sample_name in sample_reader_dict.keys():
+                    bam_reader = sample_reader_dict[sample_name]
+                    [depth,FA] = bam_reader.get_depth_and_alt_freq(CHROM, int(POS), REF, ALT)
+                    sample_field = [str(depth),FA]
+                    sample_field_joint = ':'.join(sample_field)
+                    vcf_fields.append(sample_field_joint)
+                a = '\t'.join(vcf_fields)
+                print(a)
                         
 def _parse_command_line_args(arguments):
     parser = argparse.ArgumentParser(usage="zither [-h] [-V] input_vcf input_bam",
@@ -158,6 +158,7 @@ def _parse_command_line_args(arguments):
 
     parser.add_argument("-V", "--version", action='version', version=__version__)
     parser.add_argument('input_vcf', help="Path to input VCFs; all record locations will appear in output file")
+    parser.add_argument('--bam', help="Path to indexed BAM; used to calculate raw depth and frequency")
     parser.add_argument('--mapping_file', help="Path to tab delimited list of VCF_sample_names and BAM_file_names")
     args = parser.parse_args(arguments)
     return args

@@ -1,6 +1,7 @@
 from __future__ import print_function, absolute_import, division
 
 from argparse import Namespace
+from collections import OrderedDict
 import datetime
 import filecmp
 import os
@@ -64,11 +65,18 @@ def _create_bam(dir, filename, sam_contents):
 
 
 def _get_zither_metaheader(lines):
+    return _get_line_starts_with(lines, "##zither=<")
+
+def _get_column_header(lines):
+    return _get_line_starts_with(lines, "#CHROM")
+    
+def _get_line_starts_with(lines, starts_with):
     for line in lines:
-        if line.startswith("##zither=<"):
+        if line.startswith(starts_with):
             return line
     return None
-    
+
+
 class ZitherBaseTestCase(unittest.TestCase):
     def setUp(self):
         unittest.TestCase.setUp(self)
@@ -95,8 +103,83 @@ class ZitherBaseTestCase(unittest.TestCase):
             else:
                 self.assertEquals(expected[i].rstrip(),
                                   actual[i].rstrip())
-    
-    
+                                  
+                                  
+class ExplicitBamFileStrategyTestCase(ZitherBaseTestCase):
+    def test_build_sample_bam_mapping(self):
+        strategy = zither._ExplicitBamFileStrategy("/foo/bar/baz.bam")
+        actual_mapping = strategy.build_sample_bam_mapping()
+        self.assertEquals(["baz"],  list(actual_mapping.keys()))
+        self.assertEquals("/foo/bar/baz.bam",  actual_mapping["baz"])
+
+    def test_build_sample_bam_mapping_longExtension(self):
+        strategy = zither._ExplicitBamFileStrategy("/foo/bar/baz.hoopy.frood.bam")
+        actual_mapping = strategy.build_sample_bam_mapping()
+        self.assertEquals(["baz.hoopy.frood"],  list(actual_mapping.keys()))
+        self.assertEquals("/foo/bar/baz.hoopy.frood.bam",  actual_mapping["baz.hoopy.frood"])
+
+    def test_build_sample_bam_mapping_noExtension(self):
+        strategy = zither._ExplicitBamFileStrategy("/foo/bar/baz")
+        actual_mapping = strategy.build_sample_bam_mapping()
+        self.assertEquals(["baz"],  list(actual_mapping.keys()))
+        self.assertEquals("/foo/bar/baz",  actual_mapping["baz"])
+
+        
+class MatchingNameStrategyTestCase(ZitherBaseTestCase):
+    def test_build_sample_bam_mapping(self):
+        actual_mapping = zither._MatchingNameStrategy(["sA", "sB"], 
+                                                       "/foo/bar/input.vcf").build_sample_bam_mapping()        
+        self.assertEquals(["sA", "sB"],  sorted(actual_mapping.keys()))
+        self.assertEquals("/foo/bar/sA.bam",  actual_mapping["sA"])
+        self.assertEquals("/foo/bar/sB.bam",  actual_mapping["sB"])
+
+    def test_build_sample_bam_mapping_emptySampleList(self):
+        actual_mapping = zither._MatchingNameStrategy([], "/foo/bar/input.vcf").build_sample_bam_mapping()        
+        self.assertEquals([],  actual_mapping.keys())
+
+
+class MappingFileStrategyTestCase(ZitherBaseTestCase):      
+    def test_build_sample_bam_mapping(self):
+        mapping_file_contents = \
+'''sA	/foo/bar/sA.bam
+sB	/foo/bar/sB.bam
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            mapping_file = _create_file(tmp_path, "mapping_file.txt", mapping_file_contents)
+
+            actual_mapping = zither._MappingFileStrategy(mapping_file).build_sample_bam_mapping()
+            self.assertEquals(["sA", "sB"],  sorted(actual_mapping.keys()))
+            self.assertEquals("/foo/bar/sA.bam",  actual_mapping["sA"])
+            self.assertEquals("/foo/bar/sB.bam",  actual_mapping["sB"])
+
+    def test_build_sample_bam_mapping_preservesSampleOrderFromMappingFile(self):
+        mapping_file_contents = \
+'''sX	/foo
+s1a	/foo
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            mapping_file = _create_file(tmp_path, "mapping_file.txt", mapping_file_contents)
+
+            actual_mapping = zither._MappingFileStrategy(mapping_file).build_sample_bam_mapping()
+            self.assertEquals(["sX", "s1a"],  list(actual_mapping.keys()))
+            
+    def test_build_sample_bam_mapping_invalidMappingFile(self):
+        mapping_file_contents = \
+'''sA
+sB	/foo/bar/sB.bam
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            mapping_file = _create_file(tmp_path, "mapping_file.txt", mapping_file_contents)
+            
+            strategy = zither._MappingFileStrategy(mapping_file)
+            
+            self.assertRaises(ValueError,
+                strategy.build_sample_bam_mapping)
+
+                
 class BamReaderTestCase(ZitherBaseTestCase):
     def test_equals(self):
         sam_contents = \
@@ -383,7 +466,10 @@ chr10	10	.	C	G	.	.	.	BDP:BAF	3:0.0	2:0.5
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents_A)
             bam_B = _create_bam(tmp_path, "sample_B.sam", sam_contents_B)
              
-            sample_reader_dict = {"sample_A": zither._BamReader(bam_A), "sample_B": zither._BamReader(bam_B)}
+            sample_reader_dict = OrderedDict([
+                                    ("sample_A", zither._BamReader(bam_A)), 
+                                    ("sample_B", zither._BamReader(bam_B))
+                                    ])
             zither._create_vcf(input_vcf, sample_reader_dict)
         
             actual_output_lines = self.stdout.getvalue()
@@ -470,6 +556,33 @@ chr1	10	.	A	C,G	.	.	.	BDP:BAF	3:.
             self._compare_lines(expected_vcf_contents, actual_output_lines)
 
             
+    def test_create_vcf_pullsSampleNamesFromSampleReaderDict(self):
+        input_vcf_contents = \
+'''##fileformat=VCFv4.1
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_A
+chr1	10	.	A	C	.	.	.	GT	0/1
+'''
+
+        sam_contents = \
+'''@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr1	LN:10
+readA	99	chr1	10	0	1M	=	105	0	A	>
+'''
+
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
+            bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
+
+            sample_reader_dict = {"mySampleName": zither._BamReader(bam_A)}
+            zither._create_vcf(input_vcf, sample_reader_dict)
+        
+        actual_output_lines = self.stdout.getvalue().split("\n")
+        column_header_fields = _get_column_header(actual_output_lines).split("\t")
+        
+        self.assertEquals(10, len(column_header_fields))
+        self.assertEquals("mySampleName", column_header_fields[9])
+            
     def test_create_vcf_addsCommandLineMetaHeader(self):
         input_vcf_contents = \
 '''##fileformat=VCFv4.1
@@ -521,6 +634,22 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             self.assertEquals(zither._BamReader(bam_A),  actual_sample_reader_mapping["sA"])
             self.assertEquals(zither._BamReader(bam_B),  actual_sample_reader_mapping["sB"])
     
+    def test_build_reader_dict_preservesSampleOrder(self):
+        sam_contents = \
+'''@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr1	LN:10
+readA	99	chr1	10	0	1M	=	105	0	A	>
+'''
+        with TempDirectory() as tmp_dir:
+            tmp_path = tmp_dir.path
+            bam_A = _create_bam(tmp_path, "sample_X.sam", sam_contents)
+            bam_B = _create_bam(tmp_path, "sample_1.sam", sam_contents)
+
+            sample_bam_mapping = OrderedDict([('sX', bam_A),('s1', bam_B)])
+            actual_sample_reader_mapping = zither._build_reader_dict(sample_bam_mapping)
+            self.assertEquals(["sX", "s1"],  list(actual_sample_reader_mapping.keys()))
+
+
     def test_get_sample_bam_strategy(self):
         input_vcf_contents = \
 '''##fileformat=VCFv4.1
@@ -531,74 +660,55 @@ chr1	10	.	A	C	.	.	.	GT	0/1
             tmp_path = tmp_dir.path
             vcf_filename = _create_file(tmp_path, "foo.vcf", input_vcf_contents)
             
-            args = Namespace(input_vcf=vcf_filename, mapping_file=None)
+            args = Namespace(input_vcf=vcf_filename, mapping_file=None, bam=None)
             actual_strategy = zither._get_sample_bam_strategy(args)
             self.assertIsInstance(actual_strategy, zither._MatchingNameStrategy)
             
-            args = Namespace(input_vcf=vcf_filename, mapping_file="foo.txt")
+            args = Namespace(input_vcf=vcf_filename, mapping_file="foo.txt", bam=None)
             actual_strategy = zither._get_sample_bam_strategy(args)
             self.assertIsInstance(actual_strategy, zither._MappingFileStrategy)
+
+            args = Namespace(input_vcf=vcf_filename, mapping_file=None, bam="/foo/bar/baz.bam")
+            actual_strategy = zither._get_sample_bam_strategy(args)
+            self.assertIsInstance(actual_strategy, zither._ExplicitBamFileStrategy)
+
+def _absolute_base_dir(*path_components):
+    base_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    return os.path.join(base_path, *path_components)
+            
+            
+class ZitherFunctionalTestCase(ZitherBaseTestCase):
+    def test_main_explicit_bam(self):
+        args = ["zither", 
+                _absolute_base_dir("examples", "explicit_bam", "input.vcf"), 
+                "--bam", 
+                _absolute_base_dir("examples", "explicit_bam", "sample_X.bam")]
+        expected_vcf_filename = _absolute_base_dir("examples", "explicit_bam", "expected_output.vcf")
+        with open(expected_vcf_filename, 'r') as expected_vcf:
+            expected_vcf_contents = expected_vcf.read()
+            zither.main(args)
+            actual_output_lines = self.stdout.getvalue()
+            self._compare_lines(expected_vcf_contents, actual_output_lines)
     
     def test_main_matching_names(self):
-        dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),'..')
-        args = ["zither", os.path.join(dir_path, "examples/matching_names/input.vcf")]
-        expected_vcf_filename = os.path.join(dir_path, "examples/matching_names/expected_output.vcf")
+        args = ["zither", 
+                _absolute_base_dir("examples", "matching_names", "input.vcf")]
+        expected_vcf_filename = _absolute_base_dir("examples", "matching_names", "expected_output.vcf")
         with open(expected_vcf_filename, 'r') as expected_vcf:
             expected_vcf_contents = expected_vcf.read()
             zither.main(args)
-            actual_output_lines = self.stdout.getvalue()    
+            actual_output_lines = self.stdout.getvalue()
             self._compare_lines(expected_vcf_contents, actual_output_lines)
+        
 
     def test_main_mapping_file(self):
-        dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),'..')
         args = ["zither", 
-                os.path.join(dir_path, "examples/mapping_files/input.vcf") ,
+                _absolute_base_dir("examples", "mapping_files", "input.vcf") ,
                 "--mapping_file",
-                os.path.join(dir_path, "examples/mapping_files/mapping_file.txt")]
-        expected_vcf_filename = os.path.join(dir_path, "examples/mapping_files/expected_output.vcf")
+                _absolute_base_dir("examples", "mapping_files", "mapping_file.txt")]
+        expected_vcf_filename = _absolute_base_dir("examples", "mapping_files", "expected_output.vcf")
         with open(expected_vcf_filename, 'r') as expected_vcf:
             expected_vcf_contents = expected_vcf.read()
             zither.main(args)
             actual_output_lines = self.stdout.getvalue()    
             self._compare_lines(expected_vcf_contents, actual_output_lines)
-
-class MatchingNameStrategyTestCase(ZitherBaseTestCase):
-    def test_build_dict_from_matching_bams(self):
-        actual_mapping = zither._MatchingNameStrategy(["sA", "sB"], 
-                                                       "/foo/bar/input.vcf").build_sample_bam_mapping()        
-        self.assertEquals(["sA", "sB"],  sorted(actual_mapping.keys()))
-        self.assertEquals("/foo/bar/sA.bam",  actual_mapping["sA"])
-        self.assertEquals("/foo/bar/sB.bam",  actual_mapping["sB"])
-
-    def test_build_dict_from_matching_bams_emptySampleList(self):
-        actual_mapping = zither._MatchingNameStrategy([], "/foo/bar/input.vcf").build_sample_bam_mapping()        
-        self.assertEquals([],  actual_mapping.keys())
-
-class MappingFileStrategyTestCase(ZitherBaseTestCase):      
-    def test_build_dict_from_mapping_file(self):
-        mapping_file_contents = \
-'''sA	/foo/bar/sA.bam
-sB	/foo/bar/sB.bam
-'''
-        with TempDirectory() as tmp_dir:
-            tmp_path = tmp_dir.path
-            mapping_file = _create_file(tmp_path, "mapping_file.txt", mapping_file_contents)
-
-            actual_mapping = zither._MappingFileStrategy(mapping_file).build_sample_bam_mapping()
-            self.assertEquals(["sA", "sB"],  sorted(actual_mapping.keys()))
-            self.assertEquals("/foo/bar/sA.bam",  actual_mapping["sA"])
-            self.assertEquals("/foo/bar/sB.bam",  actual_mapping["sB"])
-
-    def test_build_dict_from_mapping_file_invalidMappingFile(self):
-        mapping_file_contents = \
-'''sA
-sB	/foo/bar/sB.bam
-'''
-        with TempDirectory() as tmp_dir:
-            tmp_path = tmp_dir.path
-            mapping_file = _create_file(tmp_path, "mapping_file.txt", mapping_file_contents)
-            
-            strategy = zither._MappingFileStrategy(mapping_file)
-            
-            self.assertRaises(ValueError,
-                strategy.build_sample_bam_mapping)
