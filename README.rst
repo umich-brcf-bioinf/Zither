@@ -49,4 +49,4 @@ that contains the mapping file.
 
 Email bfx-zither@umich.edu for support and questions.
 
-UM BRCF Bioinformatics Core
+UM BRCF Bioinformatics Core 
