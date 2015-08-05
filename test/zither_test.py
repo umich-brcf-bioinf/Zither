@@ -5,6 +5,7 @@ from collections import OrderedDict
 import datetime
 import filecmp
 import os
+import pysam
 import re
 from subprocess import call
 import sys
@@ -54,16 +55,27 @@ def _create_file(path, filename, contents):
 
 #def _create_bam(dir, sam_contents, filename="test.sam"):
 def _create_bam(dir, filename, sam_contents):
-    test_input_sam = os.path.join(dir, filename)
-    bam_filename = test_input_sam.replace(".sam", ".bam")
-    sam_file = open(test_input_sam, "w")
+    sam_filename = os.path.join(dir, filename)
+    bam_filename = sam_filename.replace(".sam", ".bam")
+    sam_file = open(sam_filename, "w")
     sam_file.write(sam_contents)
     sam_file.close()
-    call(["samtools view -S -b "+ test_input_sam + " -o " + bam_filename + " 2>/dev/null "], shell=True)
-    call(["samtools index " + bam_filename + " 2>/dev/null "], shell=True)
+    _pysam_bam_from_sam(sam_filename, bam_filename)
     return bam_filename
 
-
+def _pysam_bam_from_sam(sam_filename, bam_filename):
+    temp_stdout = sys.stdout
+    try:
+        sys.stdout=sys.__stdout__
+        bam = pysam.view("-S", "-b", sam_filename)
+        bam_file = open(bam_filename, "wb")
+        for line in bam:
+            bam_file.write(line)
+        bam_file.close()
+        pysam.index(bam_filename)
+    finally:
+        sys.stdout = temp_stdout
+        
 def _get_zither_metaheader(lines):
     return _get_line_starts_with(lines, "##zither=<")
 
