@@ -66,7 +66,7 @@ def _create_bam(dir, filename, sam_contents):
 def _pysam_bam_from_sam(sam_filename, bam_filename):
     temp_stdout = sys.stdout
     try:
-        sys.stdout=sys.__stdout__
+        sys.stdout = sys.__stdout__
         bam = pysam.view("-S", "-b", sam_filename)
         bam_file = open(bam_filename, "wb")
         for line in bam:
