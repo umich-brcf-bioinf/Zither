@@ -46,6 +46,9 @@ class _BamFlag(object):
     #supplementary alignment 
     SUPPLEMENTARY = 2048
 
+def _absolute_base_dir(*path_components):
+    base_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    return os.path.join(base_path, *path_components)            
         
 def _create_file(path, filename, contents):
     filename = os.path.join(path, filename)
@@ -53,13 +56,9 @@ def _create_file(path, filename, contents):
         new_file.write(contents)
     return filename
 
-#def _create_bam(dir, sam_contents, filename="test.sam"):
 def _create_bam(dir, filename, sam_contents):
-    sam_filename = os.path.join(dir, filename)
+    sam_filename = _create_file(dir, filename, sam_contents)
     bam_filename = sam_filename.replace(".sam", ".bam")
-    sam_file = open(sam_filename, "w")
-    sam_file.write(sam_contents)
-    sam_file.close()
     _pysam_bam_from_sam(sam_filename, bam_filename)
     return bam_filename
 
@@ -110,8 +109,8 @@ class ZitherBaseTestCase(unittest.TestCase):
         expected = expected.split("\n")
         actual = actual.split("\n")
         for i in range(len(expected)):
-            if expected[i].startswith("##zither=<timestamp="):
-                self.assertStartsWith(actual[i], "##zither=<timestamp=")
+            if expected[i].startswith("##zither=<"):
+                self.assertStartsWith(actual[i], "##zither=<")
             else:
                 self.assertEquals(expected[i].rstrip(),
                                   actual[i].rstrip())
@@ -383,6 +382,20 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
             self.assertEquals(1, reader.get_depth_and_alt_freq(chrom="chr10", position_one_based=5, ref="C", alt="A")[0])
 
 class ZitherTestCase(ZitherBaseTestCase):
+    def test_build_execution_context(self):
+        argv = ["zither", "foo", "bar", "baz"]
+        actual_context = zither._build_execution_context(argv)
+        
+        self.assertEquals([ "timestamp", "command", "cwd", "version"], list(actual_context.keys()))
+   
+        actual_timestamp = datetime.datetime.strptime(actual_context["timestamp"], '%Y-%m-%d %H:%M:%S')
+        now_in_seconds = time.mktime(datetime.datetime.now().timetuple())
+        timestamp_in_seconds = time.mktime(actual_timestamp.timetuple())
+        self.assertTrue((now_in_seconds - timestamp_in_seconds) < 2)
+        self.assertEquals("zither foo bar baz", actual_context["command"])
+        self.assertEquals(os.getcwd(), actual_context["cwd"])
+        self.assertEquals(zither.__version__, actual_context["version"])
+        
     def test_create_vcf_singleSample(self):
         input_vcf_contents = \
 '''##fileformat=VCFv4.1
@@ -424,7 +437,7 @@ chr15	42	.	G	T	.	.	.	BDP:BAF	4:0.75
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
 
             sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
-            zither._create_vcf(input_vcf, sample_reader_dict)
+            zither._create_vcf(input_vcf, sample_reader_dict, {})
         
             actual_output_lines = self.stdout.getvalue()
             
@@ -482,7 +495,7 @@ chr10	10	.	C	G	.	.	.	BDP:BAF	3:0.0	2:0.5
                                     ("sample_A", zither._BamReader(bam_A)), 
                                     ("sample_B", zither._BamReader(bam_B))
                                     ])
-            zither._create_vcf(input_vcf, sample_reader_dict)
+            zither._create_vcf(input_vcf, sample_reader_dict, {})
         
             actual_output_lines = self.stdout.getvalue()
             
@@ -523,7 +536,7 @@ chr10	10	.	C	G	.	.	.	BDP:BAF	0:.
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
             
             sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
-            zither._create_vcf(input_vcf, sample_reader_dict)
+            zither._create_vcf(input_vcf, sample_reader_dict, {})
         
             actual_output_lines = self.stdout.getvalue()
             self._compare_lines(expected_vcf_contents, actual_output_lines)
@@ -560,7 +573,7 @@ chr1	10	.	A	C,G	.	.	.	BDP:BAF	3:.
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
             
             sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
-            zither._create_vcf(input_vcf, sample_reader_dict)
+            zither._create_vcf(input_vcf, sample_reader_dict, {})
 
         
             actual_output_lines = self.stdout.getvalue()
@@ -587,7 +600,7 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
 
             sample_reader_dict = {"mySampleName": zither._BamReader(bam_A)}
-            zither._create_vcf(input_vcf, sample_reader_dict)
+            zither._create_vcf(input_vcf, sample_reader_dict, {})
         
         actual_output_lines = self.stdout.getvalue().split("\n")
         column_header_fields = _get_column_header(actual_output_lines).split("\t")
@@ -612,21 +625,14 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
-
             sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
-            zither._create_vcf(input_vcf, sample_reader_dict)
+            execution_context=OrderedDict([("foo", "A"),("bar", "B"),("baz", "C")])
+            
+            zither._create_vcf(input_vcf, sample_reader_dict, execution_context)
         
             actual_output_lines = self.stdout.getvalue().split("\n")
             
-            tag_contents = re.search("##zither=<(.*)>", _get_zither_metaheader(actual_output_lines)).group(1)
-            tags = tag_contents.split(",")
-            self.assertStartsWith(tags[0], 'timestamp="')
-            actual_timestamp = datetime.datetime.strptime(tags[0].split("=")[1], '"%Y-%m-%d %H:%M:%S"')
-            self.assertAlmostEqual(time.mktime(datetime.datetime.now().timetuple()),
-                                   time.mktime(actual_timestamp.timetuple()))
-            self.assertRegexpMatches(tags[1], 'command=".*nosetests.*"')
-            self.assertStartsWith(tags[2], 'cwd="')
-            self.assertEquals('version="'+__version__+'"', tags[3])
+            self.assertEquals('##zither=<foo="A",bar="B",baz="C">', _get_zither_metaheader(actual_output_lines))
      
             
     def test_build_reader_dict(self):
@@ -684,10 +690,6 @@ chr1	10	.	A	C	.	.	.	GT	0/1
             actual_strategy = zither._get_sample_bam_strategy(args)
             self.assertIsInstance(actual_strategy, zither._ExplicitBamFileStrategy)
 
-def _absolute_base_dir(*path_components):
-    base_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    return os.path.join(base_path, *path_components)
-            
             
 class ZitherFunctionalTestCase(ZitherBaseTestCase):
     def test_main_explicit_bam(self):

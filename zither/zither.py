@@ -94,6 +94,13 @@ class _BamReader(object):
 
         return (total_depth, AF)
 
+        
+def _build_execution_context(argv=sys.argv):
+    return OrderedDict([("timestamp", datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                        ("command", ' '.join(argv)),
+                        ("cwd", os.getcwd()),
+                        ("version", __version__)])
+
 def _get_sample_names(input_vcf):
     with open(input_vcf, 'r') as input_file:
         column_header = None
@@ -118,21 +125,18 @@ def _build_column_header_line(sample_names):
     column_headers.extend(sample_names)
     return '\t'.join(column_headers)
     
-def _create_vcf(input_vcf, sample_reader_dict):
+def _create_vcf(input_vcf, sample_reader_dict, execution_context):
     vcf_headers = \
 '''##fileformat=VCFv4.1
 ##FORMAT=<ID=BDP,Number=1,Type=Integer,Description="BAM depth">
 ##FORMAT=<ID=BAF,Number=1,Type=Float,Description="BAM alt frequency">'''
+    execution_tags = ['{}="{}"'.format(k,v) for (k,v) in execution_context.items()]
+    zither_metaheader = '##zither=<{}>'.format(",".join(execution_tags))
 
     with open(input_vcf, 'r') as input_file:
+
         print(vcf_headers)
-        sample_field = []
-        column_header = None
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        cwd = os.path.dirname(os.getcwd())
-        command = ' '.join(sys.argv)
-        zither = '##zither=<timestamp="{}",command="{}",cwd="{}",version="{}">'.format(now, command, cwd, __version__)        
-        print(zither)
+        print(zither_metaheader)
         print(_build_column_header_line(sample_reader_dict.keys()))
         for line in input_file.readlines():
             if not line.startswith("#"):
@@ -166,10 +170,11 @@ def _parse_command_line_args(arguments):
         
 def main(command_line_args=sys.argv):
     args = _parse_command_line_args(command_line_args[1:])
+    execution_context = _build_execution_context()
     strategy = _get_sample_bam_strategy(args)
     sample_bam_mapping = strategy.build_sample_bam_mapping()
     reader_dict = _build_reader_dict(sample_bam_mapping)
-    _create_vcf(args.input_vcf, reader_dict)
+    _create_vcf(args.input_vcf, reader_dict, execution_context)
 
 if __name__ == '__main__':
     main()
