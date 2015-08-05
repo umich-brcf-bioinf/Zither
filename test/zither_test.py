@@ -624,7 +624,7 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             actual_timestamp = datetime.datetime.strptime(tags[0].split("=")[1], '"%Y-%m-%d %H:%M:%S"')
             self.assertAlmostEqual(time.mktime(datetime.datetime.now().timetuple()),
                                    time.mktime(actual_timestamp.timetuple()))
-            self.assertEquals('command="/usr/bin/nosetests"', tags[1])
+            self.assertRegexpMatches(tags[1], 'command=".*nosetests.*"')
             self.assertStartsWith(tags[2], 'cwd="')
             self.assertEquals('version="'+__version__+'"', tags[3])
      
