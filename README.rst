@@ -8,9 +8,11 @@ Command-line tool to pull raw depths and alt freqs from BAM file(s) based on an 
     :target: https://travis-ci.org/umich-brcf-bioinf/zither
     :alt: Build Status
 
-.. image:: https://coveralls.io/repos/umich-brcf-bioinf/Zither/badge.png?branch=develop
-    :target: https://coveralls.io/r/umich-brcf-bioinf/Zither?branch=develop
+.. image:: https://coveralls.io/repos/umich-brcf-bioinf/zither/badge.svg?branch=develop&service=github
+    :target: https://coveralls.io/github/umich-brcf-bioinf/zither?branch=develop
     :alt: Coverage Status
+
+
 
 The official repository is at:
 
