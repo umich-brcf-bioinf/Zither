@@ -1,2 +1,0 @@
-sample_B	sample_B/sample_B.bam
-sample_A	sample_A/sample_A.bam

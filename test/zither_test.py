@@ -156,7 +156,7 @@ class MatchingNameStrategyTestCase(ZitherBaseTestCase):
         strategy = zither._MatchingNameStrategy([],
                                                 "/foo/bar/input.vcf")
         actual_mapping = strategy.build_sample_bam_mapping()
-        self.assertEquals([], actual_mapping.keys())
+        self.assertEquals([], list(actual_mapping.keys()))
 
 
 class MappingFileStrategyTestCase(ZitherBaseTestCase):
