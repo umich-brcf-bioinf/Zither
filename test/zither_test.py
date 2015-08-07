@@ -16,6 +16,55 @@ try:
 except ImportError:
     from io import StringIO
 
+# I would rather just say pysam.view(...), but since that global is
+# added dynamically, Eclipse flags this as a compilation problem. So
+# instead we connect directly to the pysam.SamtoolsDispatcher.
+PYSAM_VIEW = pysam.SamtoolsDispatcher("view", None).__call__
+PYSAM_INDEX = pysam.SamtoolsDispatcher("index", None).__call__
+
+def _absolute_base_dir(*path_components):
+    base_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    return os.path.join(base_path, *path_components)
+
+def _create_file(path, filename, contents):
+    filename = os.path.join(path, filename)
+    with open(filename, 'w') as new_file:
+        new_file.write(contents)
+    return filename
+
+def _create_bam(path, filename, sam_contents):
+    sam_filename = _create_file(path, filename, sam_contents)
+    bam_filename = sam_filename.replace(".sam", ".bam")
+    _pysam_bam_from_sam(sam_filename, bam_filename)
+    return bam_filename
+
+def _pysam_bam_from_sam(sam_filename, bam_filename):
+    temp_stdout = sys.stdout
+    try:
+        sys.stdout = sys.__stdout__
+        bam = PYSAM_VIEW("-S", "-b", sam_filename)
+        bam_file = open(bam_filename, "wb")
+        for line in bam:
+            bam_file.write(line)
+        bam_file.close()
+        PYSAM_INDEX(bam_filename)
+
+    finally:
+        sys.stdout = temp_stdout
+
+def _get_zither_metaheader(lines):
+    return _get_line_starts_with(lines, "##zither=<")
+
+def _get_column_header(lines):
+    return _get_line_starts_with(lines, "#CHROM")
+
+def _get_line_starts_with(lines, starts_with):
+    for line in lines:
+        if line.startswith(starts_with):
+            return line
+    return None
+
+
 class _BamFlag(object):
     #the read is paired in sequencing, no matter whether it is mapped in a pair
     PAIRED = 1
@@ -41,53 +90,6 @@ class _BamFlag(object):
     DUP = 1024
     #supplementary alignment
     SUPPLEMENTARY = 2048
-
-def _absolute_base_dir(*path_components):
-    base_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    return os.path.join(base_path, *path_components)
-
-def _create_file(path, filename, contents):
-    filename = os.path.join(path, filename)
-    with open(filename, 'w') as new_file:
-        new_file.write(contents)
-    return filename
-
-def _create_bam(path, filename, sam_contents):
-    sam_filename = _create_file(path, filename, sam_contents)
-    bam_filename = sam_filename.replace(".sam", ".bam")
-    _pysam_bam_from_sam(sam_filename, bam_filename)
-    return bam_filename
-
-def _pysam_bam_from_sam(sam_filename, bam_filename):
-    # I would rather just say pysam.view(...), but since that global is
-    # added dynamically, Eclipse flags this as a compilation problem. So
-    # instead we connect directly to the pysam.SamtoolsDispatcher.
-    pysam_view = pysam.SamtoolsDispatcher("view", None).__call__
-    pysam_index = pysam.SamtoolsDispatcher("index", None).__call__
-    temp_stdout = sys.stdout
-    try:
-        sys.stdout = sys.__stdout__
-        bam = pysam_view("-S", "-b", sam_filename)
-        bam_file = open(bam_filename, "wb")
-        for line in bam:
-            bam_file.write(line)
-        bam_file.close()
-        pysam_index(bam_filename)
-
-    finally:
-        sys.stdout = temp_stdout
-
-def _get_zither_metaheader(lines):
-    return _get_line_starts_with(lines, "##zither=<")
-
-def _get_column_header(lines):
-    return _get_line_starts_with(lines, "#CHROM")
-
-def _get_line_starts_with(lines, starts_with):
-    for line in lines:
-        if line.startswith(starts_with):
-            return line
-    return None
 
 
 class ZitherBaseTestCase(unittest.TestCase):
