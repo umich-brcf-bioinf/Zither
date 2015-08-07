@@ -34,6 +34,10 @@ _VCF_FIXED_HEADERS = ["#CHROM",
                       "INFO",
                       "FORMAT"]
 
+_PYSAM_BASE_INDEX = {'A':0, 'C':1, 'G':2, 'T':3}
+
+_NULL = "."
+
 class _ExplicitBamFileStrategy(object):
     def __init__(self, bam_file_path):
         self._bam_file_path = bam_file_path
@@ -99,9 +103,8 @@ class _BamReader(object):
         return hash(self._bam_file_name)
 
     def get_depth_and_alt_freq(self, chrom, pos_one_based, ref, alt):
-        BASE_INDEX = {'A':0, 'C':1, 'G':2, 'T':3}
         alt = alt.upper()
-        AF = '.'
+        freq = _NULL
         pos_zero_based = pos_one_based - 1
         coverage = self._bam_file.count_coverage(chr=chrom,
                                           start=pos_zero_based,
@@ -114,13 +117,13 @@ class _BamReader(object):
                        coverage[2][0] +
                        coverage[3][0])
         try:
-            variant_count = coverage[BASE_INDEX[alt]][0]
+            variant_count = coverage[_PYSAM_BASE_INDEX[alt]][0]
             if total_depth and len(ref)==1:
-                AF = str(variant_count/total_depth)
+                freq = str(variant_count/total_depth)
         except KeyError:
-            pass #AF remains null
+            freq = _NULL
 
-        return (total_depth, AF)
+        return (total_depth, freq)
 
 
 def _build_execution_context(argv):

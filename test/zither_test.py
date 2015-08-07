@@ -44,8 +44,7 @@ def _pysam_bam_from_sam(sam_filename, bam_filename):
         sys.stdout = sys.__stdout__
         bam = PYSAM_VIEW("-S", "-b", sam_filename)
         bam_file = open(bam_filename, "wb")
-        for line in bam:
-            bam_file.write(line)
+        bam_file.writelines(bam)
         bam_file.close()
         PYSAM_INDEX(bam_filename)
 
