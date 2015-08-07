@@ -20,3 +20,12 @@ If you don't have root permissions, you can install locally:
 ``$ pip install git+https://github.com/umich-brcf-bioinf/Zither --user``
 
 Following the pip install, you may need to adjust your path settings to include home/.local/bin. 
+
+
+If you already have pysam installed, you can also clone from github and run directly from the source like so:
+
+``$ git clone https://github.com/umich-brcf-bioinf/Zither``
+
+``$ Zither/zither_runner.py --bam input.bam input.vcf > zither.vcf``
+  
+
