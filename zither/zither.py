@@ -88,6 +88,11 @@ def _get_sample_bam_strategy(args):
         sample_names = _get_sample_names(args.input_vcf)
         return _MatchingNameStrategy(sample_names, args.input_vcf)
 
+class _PileupStats(object):
+    def __init__(self, unfiltered_depth, unfiltered_af):
+        self.unfiltered_depth = unfiltered_depth
+        self.unfiltered_af = unfiltered_af
+    
 
 class _BamReader(object):
     def __init__(self, bam_file_name):
@@ -126,6 +131,30 @@ class _BamReader(object):
         return (total_depth, freq)
 
 
+    def get_pileup_stats(self, chrom, pos_one_based, ref, alt):
+        alt = alt.upper()
+        freq = _NULL
+        pos_zero_based = pos_one_based - 1
+        coverage = self._bam_file.count_coverage(chr=chrom,
+                                          start=pos_zero_based,
+                                          stop=pos_one_based,
+                                          quality_threshold=-1,
+                                          read_callback='nofilter')
+
+        total_depth = (coverage[0][0] +
+                       coverage[1][0] +
+                       coverage[2][0] +
+                       coverage[3][0])
+        try:
+            variant_count = coverage[_PYSAM_BASE_INDEX[alt]][0]
+            if total_depth and len(ref)==1:
+                freq = str(variant_count/total_depth)
+        except KeyError:
+            freq = _NULL
+
+        return _PileupStats(total_depth, freq)
+
+        
 def _build_execution_context(argv):
     return OrderedDict([("timestamp",
                          datetime.now().strftime('%Y-%m-%d %H:%M:%S')),

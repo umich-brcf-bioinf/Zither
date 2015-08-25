@@ -279,6 +279,40 @@ readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
                                                          alt="A")
             self.assertEquals((2, '0.5'), actual_stats)
 
+
+    def test_get_pileup_stats(self):
+        sam_contents = \
+'''@HD	VN:1.4	GO:none	SO:coordinate
+@SQ	SN:chr10	LN:135534747
+readNameA	99	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
+readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
+'''
+        with TempDirectory() as tmp_dir:
+            input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
+            reader = zither._BamReader(input_bam)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                         pos_one_based=4,
+                                                         ref="C",
+                                                         alt="A")
+            self.assertEquals(0, actual_stats.unfiltered_depth)
+            self.assertEquals('.', actual_stats.unfiltered_af)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                         pos_one_based=5,
+                                                         ref="C",
+                                                         alt="A")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+            self.assertEquals('1.0', actual_stats.unfiltered_af)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                         pos_one_based=6,
+                                                         ref="C",
+                                                         alt="A")
+            self.assertEquals(2, actual_stats.unfiltered_depth)
+            self.assertEquals('0.5', actual_stats.unfiltered_af)
+
+            
     def test_get_depth_and_alt_freq_ignoresDeletions(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
