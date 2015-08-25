@@ -209,7 +209,38 @@ sB	/foo/bar/sB.bam
             self.assertRaises(ValueError,
                 strategy.build_sample_bam_mapping)
 
+class PileupStats(ZitherBaseTestCase):
+    def test_init(self):
+        coverage = [[1], [2], [4], [8]]
+        stats = zither._PileupStats("A", "C", coverage)
+        self.assertEquals(15, stats.unfiltered_depth)
+        self.assertEquals(str(2/15), stats.unfiltered_af)
+    
+    def test_no_depth(self):
+        coverage = [[0], [0], [0], [0]]
+        stats = zither._PileupStats("A", "C", coverage)
+        self.assertEquals(0, stats.unfiltered_depth)
+        self.assertEquals(".", stats.unfiltered_af)
 
+    def test_insertion(self):
+        coverage = [[1], [2], [4], [8]]
+        stats = zither._PileupStats("A", "ACGT", coverage)
+        self.assertEquals(15, stats.unfiltered_depth)
+        self.assertEquals(".", stats.unfiltered_af)
+
+    def test_deletion(self):
+        coverage = [[1], [2], [4], [8]]
+        stats = zither._PileupStats("ACGT", "A", coverage)
+        self.assertEquals(15, stats.unfiltered_depth)
+        self.assertEquals(".", stats.unfiltered_af)
+
+    def test_multalt(self):
+        coverage = [[1], [2], [4], [8]]
+        stats = zither._PileupStats("A", "C,G", coverage)
+        self.assertEquals(15, stats.unfiltered_depth)
+        self.assertEquals(".", stats.unfiltered_af)
+
+        
 class BamReaderTestCase(ZitherBaseTestCase):
     def test_equals(self):
         sam_contents = \
@@ -250,36 +281,6 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             self.assertEquals(1, len(reader_set))
 
 
-    def test_get_depth_and_alt_freq(self):
-        sam_contents = \
-'''@HD	VN:1.4	GO:none	SO:coordinate
-@SQ	SN:chr10	LN:135534747
-readNameA	99	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
-readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
-'''
-        with TempDirectory() as tmp_dir:
-            input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
-
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=4,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals((0, '.'), actual_stats)
-
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=5,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals((1, '1.0'), actual_stats)
-
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=6,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals((2, '0.5'), actual_stats)
-
-
     def test_get_pileup_stats(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
@@ -313,7 +314,7 @@ readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
             self.assertEquals('0.5', actual_stats.unfiltered_af)
 
             
-    def test_get_depth_and_alt_freq_ignoresDeletions(self):
+    def test_get_pileup_stats_ignoresDeletions(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -323,25 +324,25 @@ readNameB	99	chr10	5	0	1M1D1M	=	105	0	CG	>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=5,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals(2, actual_stats[0])
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(2, actual_stats.unfiltered_depth)
 
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=6,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals(1, actual_stats[0])
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=6,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
 
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=7,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals(2, actual_stats[0])
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=7,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(2, actual_stats.unfiltered_depth)
 
-    def test_get_depth_and_alt_freq_ignoresSkippedRef(self):
+    def test_get_pileup_stats_ignoresSkippedRef(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -351,25 +352,25 @@ readNameB	99	chr10	5	0	1M1N1M	=	105	0	CG	>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=5,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals(2, actual_stats[0])
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(2, actual_stats.unfiltered_depth)
 
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=6,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals(1, actual_stats[0])
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=6,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
 
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=7,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals(2, actual_stats[0])
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=7,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(2, actual_stats.unfiltered_depth)
 
-    def test_get_depth_and_alt_freq_ignoresCase(self):
+    def test_get_pileup_stats_ignoresCase(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -378,19 +379,20 @@ readNameA	99	chr10	5	0	3M	=	105	0	AAA	>>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=5,
-                                                         ref="C",
-                                                         alt="a")
-            self.assertEquals((1,'1.0'), actual_stats)
-            actual_stats = reader.get_depth_and_alt_freq(chrom="chr10",
-                                                         pos_one_based=5,
-                                                         ref="C",
-                                                         alt="A")
-            self.assertEquals((1,'1.0'),
-                              actual_stats)
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="a")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+            self.assertEquals('1.0', actual_stats.unfiltered_af)
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+            self.assertEquals('1.0', actual_stats.unfiltered_af)
 
-    def test_get_depth_and_alt_freq_skipsFreqForIndels(self):
+    def test_get_pileup_stats_skipsFreqForIndels(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -399,18 +401,22 @@ readNameA	99	chr10	5	0	3M	=	105	0	AAA	>>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            self.assertEquals((1,'.'),
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=5,
-                                                            ref="A",
-                                                            alt="ATA"))
-            self.assertEquals((1,'.'),
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=5,
-                                                            ref="ATA",
-                                                            alt="A"))
 
-    def test_get_depth_and_alt_freq_ignoresInsertions(self):
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="A",
+                                                   alt="ATA")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+            self.assertEquals('.', actual_stats.unfiltered_af)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="ATA",
+                                                   alt="A")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+            self.assertEquals('.', actual_stats.unfiltered_af)
+
+    def test_get_pileup_stats_ignoresInsertions(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -420,18 +426,22 @@ readNameA	99	chr10	5	0	4M2I4M	=	105	0	ACGTTTACGT	>>>>>>>>>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            self.assertEquals((2,'1.0'),
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=5,
-                                                            ref="C",
-                                                            alt="A"))
-            self.assertEquals((2,'1.0'),
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=9,
-                                                            ref="C",
-                                                            alt="A"))
 
-    def test_get_depth_and_alt_freq_overlappingReadPairsCountedSeparately(self):
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(2, actual_stats.unfiltered_depth)
+            self.assertEquals('1.0', actual_stats.unfiltered_af)
+            
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=9,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(2, actual_stats.unfiltered_depth)
+            self.assertEquals('1.0', actual_stats.unfiltered_af)
+
+    def test_get_pileup_stats_overlappingReadPairsCountedSeparately(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -441,45 +451,50 @@ readNameA	147	chr10	7	0	4M	=	105	0	TTTT	>>>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=5,
                                                             ref="C",
                                                             alt="A")
-                                                            [0])
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
+
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+            
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=6,
                                                             ref="C",
                                                             alt="A")
-                                                            [0])
-            self.assertEquals(2,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=7,
                                                             ref="C",
                                                             alt="A")
-                                                            [0])
-            self.assertEquals(2,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
+
+            self.assertEquals(2, actual_stats.unfiltered_depth)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=8,
                                                             ref="C",
                                                             alt="A")
-                                                            [0])
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
+
+            self.assertEquals(2, actual_stats.unfiltered_depth)
+            
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=9,
                                                             ref="C",
                                                             alt="A")
-                                                            [0])
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=10,
                                                             ref="C",
                                                             alt="A")
-                                                            [0])
+
+            self.assertEquals(1, actual_stats.unfiltered_depth)
 
 
-    def test_get_depth_and_alt_freq_ignoresBaseCallQuality(self):
+    def test_get_pileup_stats_ignoresBaseCallQuality(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -494,37 +509,42 @@ readNameA	99	chr10	5	0	5M	=	105	0	AAAAA	50+&!
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=5,
-                                                            ref="C",
-                                                            alt="A")
-                                                            [0])
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=6,
-                                                            ref="C", alt="A")
-                                                            [0])
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                               pos_one_based=7,
-                                                               ref="C",
-                                                               alt="A")
-                                                               [0])
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=8,
-                                                            ref="C",
-                                                            alt="A")
-                                                            [0])
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=9,
-                                                            ref="C",
-                                                            alt="A")
-                                                            [0])
 
-    def test_get_depth_and_alt_freq_duplicatesCounted(self):
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="A")
+
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=6,
+                                                   ref="C", alt="A")
+
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=7,
+                                                   ref="C",
+                                                   alt="A")
+
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=8,
+                                                   ref="C",
+                                                   alt="A")
+
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=9,
+                                                   ref="C",
+                                                   alt="A")
+
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+    def test_get_pileup_stats_duplicatesCounted(self):
 
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
@@ -534,14 +554,14 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=5,
-                                                            ref="C",
-                                                            alt="A")
-                                                            [0])
 
-    def test_get_depth_and_alt_freq_failedQualityCounted(self):
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+    def test_get_pileup_stats_failedQualityCounted(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -550,14 +570,14 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=5,
-                                                            ref="C",
-                                                            alt="A")
-                                                            [0])
 
-    def test_get_depth_and_alt_freq_secondaryReadsCounted(self):
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
+
+    def test_get_pileup_stats_secondaryReadsCounted(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -566,12 +586,12 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
             reader = zither._BamReader(input_bam)
-            self.assertEquals(1,
-                              reader.get_depth_and_alt_freq(chrom="chr10",
-                                                            pos_one_based=5,
-                                                            ref="C",
-                                                            alt="A")
-                                                            [0])
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                   pos_one_based=5,
+                                                   ref="C",
+                                                   alt="A")
+            self.assertEquals(1, actual_stats.unfiltered_depth)
 
 class ZitherTestCase(ZitherBaseTestCase):
     def test_build_execution_context(self):

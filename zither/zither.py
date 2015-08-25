@@ -34,8 +34,6 @@ _VCF_FIXED_HEADERS = ["#CHROM",
                       "INFO",
                       "FORMAT"]
 
-_PYSAM_BASE_INDEX = {'A':0, 'C':1, 'G':2, 'T':3}
-
 _NULL = "."
 
 class _ExplicitBamFileStrategy(object):
@@ -89,10 +87,24 @@ def _get_sample_bam_strategy(args):
         return _MatchingNameStrategy(sample_names, args.input_vcf)
 
 class _PileupStats(object):
-    def __init__(self, unfiltered_depth, unfiltered_af):
-        self.unfiltered_depth = unfiltered_depth
-        self.unfiltered_af = unfiltered_af
-    
+    _PYSAM_BASE_INDEX = {'A':0, 'C':1, 'G':2, 'T':3}
+    def __init__(self, ref, alt, coverage):
+        (self.unfiltered_depth, self.unfiltered_af) = self._init_depth_freq(ref, alt, coverage)
+        
+    def _init_depth_freq(self, ref, alt, coverage):
+        alt = alt.upper()
+        freq = _NULL
+        unfiltered_depth = (coverage[0][0] +
+                            coverage[1][0] +
+                            coverage[2][0] +
+                            coverage[3][0])
+        try:
+            variant_count = coverage[self._PYSAM_BASE_INDEX[alt]][0]
+            if unfiltered_depth and len(ref)==1:
+                freq = str(variant_count/unfiltered_depth)
+        except KeyError:
+            freq = _NULL
+        return (unfiltered_depth, freq)
 
 class _BamReader(object):
     def __init__(self, bam_file_name):
@@ -107,52 +119,18 @@ class _BamReader(object):
     def __hash__(self):
         return hash(self._bam_file_name)
 
-    def get_depth_and_alt_freq(self, chrom, pos_one_based, ref, alt):
-        alt = alt.upper()
-        freq = _NULL
-        pos_zero_based = pos_one_based - 1
-        coverage = self._bam_file.count_coverage(chr=chrom,
-                                          start=pos_zero_based,
-                                          stop=pos_one_based,
-                                          quality_threshold=-1,
-                                          read_callback='nofilter')
 
-        total_depth = (coverage[0][0] +
-                       coverage[1][0] +
-                       coverage[2][0] +
-                       coverage[3][0])
-        try:
-            variant_count = coverage[_PYSAM_BASE_INDEX[alt]][0]
-            if total_depth and len(ref)==1:
-                freq = str(variant_count/total_depth)
-        except KeyError:
-            freq = _NULL
-
-        return (total_depth, freq)
 
 
     def get_pileup_stats(self, chrom, pos_one_based, ref, alt):
-        alt = alt.upper()
-        freq = _NULL
         pos_zero_based = pos_one_based - 1
         coverage = self._bam_file.count_coverage(chr=chrom,
-                                          start=pos_zero_based,
-                                          stop=pos_one_based,
-                                          quality_threshold=-1,
-                                          read_callback='nofilter')
+                                                 start=pos_zero_based,
+                                                 stop=pos_one_based,
+                                                 quality_threshold=-1,
+                                                 read_callback='nofilter')
 
-        total_depth = (coverage[0][0] +
-                       coverage[1][0] +
-                       coverage[2][0] +
-                       coverage[3][0])
-        try:
-            variant_count = coverage[_PYSAM_BASE_INDEX[alt]][0]
-            if total_depth and len(ref)==1:
-                freq = str(variant_count/total_depth)
-        except KeyError:
-            freq = _NULL
-
-        return _PileupStats(total_depth, freq)
+        return _PileupStats(ref, alt, coverage)
 
         
 def _build_execution_context(argv):
@@ -213,11 +191,12 @@ def _create_vcf(input_vcf, sample_reader_dict, execution_context):
                 vcf_fields.append(FORMAT)
                 for sample_name in sample_reader_dict.keys():
                     bam_reader = sample_reader_dict[sample_name]
-                    [depth,FA] = bam_reader.get_depth_and_alt_freq(CHROM,
-                                                                   int(POS),
-                                                                   REF,
-                                                                   ALT)
-                    sample_field = [str(depth),FA]
+                    pileup_stats = bam_reader.get_pileup_stats(CHROM,
+                                                               int(POS),
+                                                               REF,
+                                                               ALT)
+                    sample_field = [str(pileup_stats.unfiltered_depth),
+                                    pileup_stats.unfiltered_af]
                     sample_field_joint = ':'.join(sample_field)
                     vcf_fields.append(sample_field_joint)
                 a = '\t'.join(vcf_fields)
