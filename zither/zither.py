@@ -86,6 +86,7 @@ def _get_sample_bam_strategy(args):
         sample_names = _get_sample_names(args.input_vcf)
         return _MatchingNameStrategy(sample_names, args.input_vcf)
 
+        
 class _PileupStats(object):
     _PYSAM_BASE_INDEX = {'A':0, 'C':1, 'G':2, 'T':3}
     def __init__(self, ref, alt, coverage):
@@ -106,6 +107,7 @@ class _PileupStats(object):
             freq = _NULL
         return (unfiltered_depth, freq)
 
+        
 class _BamReader(object):
     def __init__(self, bam_file_name):
         self._bam_file_name = bam_file_name
@@ -167,24 +169,40 @@ def _build_column_header_line(sample_names):
     column_headers.extend(sample_names)
     return '\t'.join(column_headers)
 
+class _Tag(object):
+    _METAHEADER = '##FORMAT=<ID={},Number={},Type={},Description="{}">'
+    def __init__(self, id, number, type, description, stats_method):
+        self.metaheader = self._METAHEADER.format(id, number, type, description)
+        self.id = id
+        self._get_value_method = stats_method
+    
+    def get_value(self, pileup_stats):
+        return str(self._get_value_method(pileup_stats)) 
+    
+    
 def _create_vcf(input_vcf, sample_reader_dict, execution_context):
-    vcf_headers = \
-'''##fileformat=VCFv4.1
-##FORMAT=<ID=BDP,Number=1,Type=Integer,Description="BAM depth">
-##FORMAT=<ID=BAF,Number=1,Type=Float,Description="BAM alt frequency">'''
+    unfiltered_depth = _Tag("BDP", "1", "Integer", "BAM depth", lambda pileup_stats: pileup_stats.unfiltered_depth)
+    unfiltered_af = _Tag("BAF", "1", "Float", "BAM alt frequency", lambda pileup_stats: pileup_stats.unfiltered_af)
+    
+    tags = [unfiltered_depth, unfiltered_af]
+    
     exec_tags = ['{}="{}"'.format(k,v) for (k,v) in execution_context.items()]
     zither_metaheader = '##zither=<{}>'.format(",".join(exec_tags))
 
+    vcf_headers = ['##fileformat=VCFv4.1']
+    vcf_headers.extend([tag.metaheader for tag in tags])
+    vcf_headers.append(zither_metaheader)
+    
+    FORMAT = ":".join([tag.id for tag in tags])
+    
     with open(input_vcf, 'r') as input_file:
 
-        print(vcf_headers)
-        print(zither_metaheader)
+        print("\n".join(vcf_headers))
         print(_build_column_header_line(sample_reader_dict.keys()))
         for line in input_file.readlines():
             if not line.startswith("#"):
                 vcf_fields = line.rstrip("\n").split("\t")[0:5]
                 (CHROM, POS, dummy, REF, ALT) = vcf_fields
-                FORMAT = "BDP:BAF"
                 vcf_fields.append('.')
                 vcf_fields.append('.')
                 vcf_fields.append('.')
@@ -195,8 +213,7 @@ def _create_vcf(input_vcf, sample_reader_dict, execution_context):
                                                                int(POS),
                                                                REF,
                                                                ALT)
-                    sample_field = [str(pileup_stats.unfiltered_depth),
-                                    pileup_stats.unfiltered_af]
+                    sample_field = [tag.get_value(pileup_stats) for tag in tags]
                     sample_field_joint = ':'.join(sample_field)
                     vcf_fields.append(sample_field_joint)
                 a = '\t'.join(vcf_fields)

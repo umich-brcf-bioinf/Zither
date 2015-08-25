@@ -240,6 +240,22 @@ class PileupStats(ZitherBaseTestCase):
         self.assertEquals(15, stats.unfiltered_depth)
         self.assertEquals(".", stats.unfiltered_af)
 
+
+class TagTestCase(ZitherBaseTestCase):
+    def test_init(self):
+        tag = zither._Tag("foo", "42", "Integer", "hoopy thing", None)
+        self.assertEquals("foo", tag.id)
+        self.assertEquals('##FORMAT=<ID=foo,Number=42,Type=Integer,Description="hoopy thing">', 
+                          tag.metaheader)
+
+    def test_get_value(self):
+        class MockPileupStats(object):
+            def __init__(self, unfiltered_depth=42):
+                self.unfiltered_depth = unfiltered_depth
+        pileup_stats = MockPileupStats()
+        tag = zither._Tag("1", "2", "3", "4", lambda pileup_stats: pileup_stats.unfiltered_depth)
+        self.assertEquals("42", tag.get_value(pileup_stats))
+        
         
 class BamReaderTestCase(ZitherBaseTestCase):
     def test_equals(self):
