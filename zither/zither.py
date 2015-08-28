@@ -89,23 +89,31 @@ def _get_sample_bam_strategy(args):
         
 class _PileupStats(object):
     _PYSAM_BASE_INDEX = {'A':0, 'C':1, 'G':2, 'T':3}
-    def __init__(self, ref, alt, coverage):
-        (self.unfiltered_depth, self.unfiltered_af) = self._init_depth_freq(ref, alt, coverage)
+    def __init__(self, ref, alt, unfiltered_coverage, filtered_coverage):
+        (self.total_depth, self.total_af) = self._init_depth_freq(ref, alt, unfiltered_coverage)
+        (self.zither_total_depth, self.zither_total_af) = self._init_depth_freq(ref, alt, unfiltered_coverage)
+        (self.filtered_depth, self.filtered_af) = self._init_depth_freq(ref, alt, filtered_coverage)
         
     def _init_depth_freq(self, ref, alt, coverage):
         alt = alt.upper()
         freq = _NULL
-        unfiltered_depth = (coverage[0][0] +
+        total_depth = (coverage[0][0] +
                             coverage[1][0] +
                             coverage[2][0] +
                             coverage[3][0])
+        # zither_total_depth = ()
+        # filtered_depth = ()
         try:
             variant_count = coverage[self._PYSAM_BASE_INDEX[alt]][0]
-            if unfiltered_depth and len(ref)==1:
-                freq = str(variant_count/unfiltered_depth)
+            if total_depth and len(ref)==1:
+                freq = str(variant_count/total_depth)
+            #elif zither_total_depth and len(ref)==1:
+                #freq = str(variant_count/zither_total_depth)
+            #elif filtered_depth and len(ref)==1:
+                #freq = str(variant_count/filtered_depth)
         except KeyError:
             freq = _NULL
-        return (unfiltered_depth, freq)
+        return (total_depth, freq)
 
         
 class _BamReader(object):
@@ -121,18 +129,38 @@ class _BamReader(object):
     def __hash__(self):
         return hash(self._bam_file_name)
 
-
-
-
     def get_pileup_stats(self, chrom, pos_one_based, ref, alt):
         pos_zero_based = pos_one_based - 1
-        coverage = self._bam_file.count_coverage(chr=chrom,
-                                                 start=pos_zero_based,
-                                                 stop=pos_one_based,
-                                                 quality_threshold=-1,
-                                                 read_callback='nofilter')
+        try:
+            coverage = self._bam_file.count_coverage(chr=chrom,
+                                                     start=pos_zero_based,
+                                                     stop=pos_one_based,
+                                                     quality_threshold=-1,
+                                                     read_callback='nofilter')
+        except ValueError as samtools_error:
+            if str(samtools_error).startswith("invalid reference"):
+                coverage = [[0], [0], [0], [0]]
+            else:
+                raise samtools_error
+        return _PileupStats(ref, alt, coverage, coverage)
 
-        return _PileupStats(ref, alt, coverage)
+class _Tag(object):
+    _METAHEADER = '##FORMAT=<ID={},Number={},Type={},Description="{}">'
+    def __init__(self, id, number, type, description, stats_method):
+        self.metaheader = self._METAHEADER.format(id, number, type, description)
+        self.id = id
+        self._get_value_method = stats_method
+    
+    def get_value(self, pileup_stats):
+        return str(self._get_value_method(pileup_stats)) 
+
+
+zither_total_depth = _Tag("ZTDP", "1", "Integer", "Zither total (unfiltered) BAM depth", lambda pileup_stats: pileup_stats.zither_total_depth) 
+zither_total_af = _Tag("ZTAF", "1", "Float", "Zither total (unfiltered) BAM alt frequency", lambda pileup_stats: pileup_stats.zither_total_af)
+filtered_depth = _Tag("ZFDP", "1", "Integer", "Zither filtered BAM depth", lambda pileup_stats: pileup_stats.filtered_depth)
+filtered_af = _Tag("ZFAF", "1", "Float", "Zither filtered BAM alt frequency", lambda pileup_stats: pileup_stats.filtered_af)
+
+DEFAULT_TAGS = [zither_total_depth, zither_total_af, filtered_depth, filtered_af]
 
         
 def _build_execution_context(argv):
@@ -169,23 +197,7 @@ def _build_column_header_line(sample_names):
     column_headers.extend(sample_names)
     return '\t'.join(column_headers)
 
-class _Tag(object):
-    _METAHEADER = '##FORMAT=<ID={},Number={},Type={},Description="{}">'
-    def __init__(self, id, number, type, description, stats_method):
-        self.metaheader = self._METAHEADER.format(id, number, type, description)
-        self.id = id
-        self._get_value_method = stats_method
-    
-    def get_value(self, pileup_stats):
-        return str(self._get_value_method(pileup_stats)) 
-    
-    
-def _create_vcf(input_vcf, sample_reader_dict, execution_context):
-    unfiltered_depth = _Tag("BDP", "1", "Integer", "BAM depth", lambda pileup_stats: pileup_stats.unfiltered_depth)
-    unfiltered_af = _Tag("BAF", "1", "Float", "BAM alt frequency", lambda pileup_stats: pileup_stats.unfiltered_af)
-    
-    tags = [unfiltered_depth, unfiltered_af]
-    
+def _create_vcf(input_vcf, sample_reader_dict, execution_context, tags=DEFAULT_TAGS):
     exec_tags = ['{}="{}"'.format(k,v) for (k,v) in execution_context.items()]
     zither_metaheader = '##zither=<{}>'.format(",".join(exec_tags))
 
@@ -239,6 +251,12 @@ def _parse_command_line_args(arguments):
     parser.add_argument('--mapping_file',
                         help="Path to tab delimited list of VCF_sample_names "
                         "and BAM_file_names")
+    parser.add_argument('--base-call-quality',
+                        help="minimum base-call quality to be included. "
+                        "Defaults to 0 (include all)")
+    parser.add_argument('--mapq_minimum',
+                        help="minimum mapping quality to be included. "
+                        "Defaults to 0 (include all)")
     args = parser.parse_args(arguments)
     return args
 
