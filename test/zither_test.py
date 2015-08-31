@@ -280,11 +280,13 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             bam_a = _create_bam(tmp_path, "sample_A.sam", sam_contents)
             bam_b = _create_bam(tmp_path, "sample_B.sam", sam_contents)
 
-            base = zither._BamReader(bam_a)
-            base_equivalent = zither._BamReader(bam_a)
+            base = zither._BamReader(bam_a, basecall_quality_cutoff=20)
+            base_equivalent = zither._BamReader(bam_a, basecall_quality_cutoff=20)
             self.assertEquals(base, base_equivalent)
-            different_file = zither._BamReader(bam_b)
+            different_file = zither._BamReader(bam_b, basecall_quality_cutoff=20)
             self.assertNotEquals(base, different_file)
+            different_basecall_quality = zither._BamReader(bam_a, basecall_quality_cutoff=0)
+            self.assertNotEquals(base, different_basecall_quality)
 
     def test_hash(self):
         sam_contents = \
@@ -298,8 +300,8 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
                                 "sample_A.sam",
                                 sam_contents)
 
-            base = zither._BamReader(bam_A)
-            base_equivalent = zither._BamReader(bam_A)
+            base = zither._BamReader(bam_A, 20)
+            base_equivalent = zither._BamReader(bam_A, 20)
             self.assertEquals(base.__hash__(), base_equivalent.__hash__())
 
             reader_set = set()
@@ -312,12 +314,12 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
-readNameA	99	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
-readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
+readNameA	99	chr10	5	0	5M	=	105	0	AAAAA	~~~~~
+readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	!!!!!
 '''
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, basecall_quality_cutoff = 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                          pos_one_based=4,
@@ -325,6 +327,8 @@ readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
                                                          alt="A")
             self.assertEquals(0, actual_stats.total_depth)
             self.assertEquals('.', actual_stats.total_af)
+            self.assertEquals(0, actual_stats.filtered_depth)
+            self.assertEquals('.', actual_stats.filtered_af)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                          pos_one_based=5,
@@ -332,6 +336,8 @@ readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
                                                          alt="A")
             self.assertEquals(1, actual_stats.total_depth)
             self.assertEquals('1.0', actual_stats.total_af)
+            self.assertEquals(1, actual_stats.filtered_depth)
+            self.assertEquals('1.0', actual_stats.filtered_af)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                          pos_one_based=6,
@@ -339,6 +345,8 @@ readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	>>>>>
                                                          alt="A")
             self.assertEquals(2, actual_stats.total_depth)
             self.assertEquals('0.5', actual_stats.total_af)
+            self.assertEquals(1, actual_stats.filtered_depth)
+            self.assertEquals('1.0', actual_stats.filtered_af)
 
             
     def test_get_pileup_stats_ignoresDeletions(self):
@@ -350,7 +358,7 @@ readNameB	99	chr10	5	0	1M1D1M	=	105	0	CG	>>
 '''
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
                                                    ref="C",
@@ -378,7 +386,7 @@ readNameB	99	chr10	5	0	1M1N1M	=	105	0	CG	>>
 '''
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
                                                    ref="C",
@@ -405,7 +413,7 @@ readNameA	99	chr10	5	0	3M	=	105	0	AAA	>>>
 '''
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
                                                    ref="C",
@@ -427,7 +435,7 @@ readNameA	99	chr10	5	0	3M	=	105	0	AAA	>>>
 '''
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
@@ -452,7 +460,7 @@ readNameA	99	chr10	5	0	4M2I4M	=	105	0	ACGTTTACGT	>>>>>>>>>>
 '''
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
@@ -477,7 +485,7 @@ readNameA	147	chr10	7	0	4M	=	105	0	TTTT	>>>>
 '''
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=5,
@@ -535,7 +543,7 @@ readNameA	99	chr10	5	0	5M	=	105	0	AAAAA	50+&!
         #20 5
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
@@ -580,7 +588,7 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 '''.format(self.simple_forward_read + _BamFlag.DUP)
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
@@ -596,7 +604,7 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 '''.format(self.simple_forward_read + _BamFlag.QCFAIL)
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
@@ -612,7 +620,7 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 '''.format(self.simple_forward_read + _BamFlag.SECONDARY)
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=5,
@@ -629,7 +637,7 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 '''.format(self.simple_forward_read + _BamFlag.SECONDARY)
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=42,
@@ -645,7 +653,7 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 '''.format(self.simple_forward_read + _BamFlag.SECONDARY)
         with TempDirectory() as tmp_dir:
             input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
-            reader = zither._BamReader(input_bam)
+            reader = zither._BamReader(input_bam, 20)
 
             actual_stats = reader.get_pileup_stats(chrom="chr42",
                                                    pos_one_based=5,
@@ -714,7 +722,7 @@ readA	99	chr1	10	0	1M	=	105	0	C	>
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
 
-            sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
+            sample_reader_dict = {"sample_A": zither._BamReader(bam_A, 20)}
             zither._create_vcf(input_vcf, sample_reader_dict, {}, tags)
 
             actual_output_lines = self.stdout.getvalue()
@@ -753,7 +761,7 @@ chr15	42	.	G	T	.	.	.	FOO:BAR	foo_value:bar_value
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
 
-            sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
+            sample_reader_dict = {"sample_A": zither._BamReader(bam_A, 20)}
             zither._create_vcf(input_vcf, sample_reader_dict, {}, tags)
 
             actual_output_lines = self.stdout.getvalue()
@@ -800,8 +808,8 @@ chr10	10	.	C	G	.	.	.	FOO:BAR	foo_value:bar_value	foo_value:bar_value
             bam_B = _create_bam(tmp_path, "sample_B.sam", sam_contents_B)
 
             sample_reader_dict = OrderedDict([
-                                    ("sample_A", zither._BamReader(bam_A)),
-                                    ("sample_B", zither._BamReader(bam_B))
+                                    ("sample_A", zither._BamReader(bam_A, 20)),
+                                    ("sample_B", zither._BamReader(bam_B, 20))
                                     ])
             zither._create_vcf(input_vcf, sample_reader_dict, {}, tags)
 
@@ -829,7 +837,7 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
 
-            sample_reader_dict = {"mySampleName": zither._BamReader(bam_A)}
+            sample_reader_dict = {"mySampleName": zither._BamReader(bam_A, 20)}
             zither._create_vcf(input_vcf, sample_reader_dict, {})
 
         actual_output_lines = self.stdout.getvalue().split("\n")
@@ -855,7 +863,7 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
             bam_A = _create_bam(tmp_path, "sample_A.sam", sam_contents)
-            sample_reader_dict = {"sample_A": zither._BamReader(bam_A)}
+            sample_reader_dict = {"sample_A": zither._BamReader(bam_A, 20)}
             execution_context=OrderedDict([("foo", "A"),
                                            ("bar", "B"),
                                            ("baz", "C")])
@@ -880,12 +888,14 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             bam_B = _create_bam(tmp_path, "sample_B.sam", sam_contents)
 
             sample_bam_mapping = {'sA':bam_A, 'sB':bam_B}
-            actual_mapping = zither._build_reader_dict(sample_bam_mapping)
+            args = Namespace(basecall_quality_cutoff=42)
+            
+            actual_mapping = zither._build_reader_dict(sample_bam_mapping, args)
             self.assertEquals(["sA", "sB"],
                               sorted(actual_mapping.keys()))
-            self.assertEquals(zither._BamReader(bam_A),
+            self.assertEquals(zither._BamReader(bam_A, basecall_quality_cutoff=42),
                               actual_mapping["sA"])
-            self.assertEquals(zither._BamReader(bam_B),
+            self.assertEquals(zither._BamReader(bam_B, basecall_quality_cutoff=42),
                               actual_mapping["sB"])
 
     def test_build_reader_dict_preservesSampleOrder(self):
@@ -900,7 +910,8 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             bam_B = _create_bam(tmp_path, "sample_1.sam", sam_contents)
 
             sample_bam_mapping = OrderedDict([('sX', bam_A),('s1', bam_B)])
-            actual_mapping = zither._build_reader_dict(sample_bam_mapping)
+            args = Namespace(basecall_quality_cutoff = 0)
+            actual_mapping = zither._build_reader_dict(sample_bam_mapping, args)
             self.assertEquals(["sX", "s1"],
                               list(actual_mapping.keys()))
 

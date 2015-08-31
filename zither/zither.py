@@ -91,7 +91,7 @@ class _PileupStats(object):
     _PYSAM_BASE_INDEX = {'A':0, 'C':1, 'G':2, 'T':3}
     def __init__(self, ref, alt, unfiltered_coverage, filtered_coverage):
         (self.total_depth, self.total_af) = self._init_depth_freq(ref, alt, unfiltered_coverage)
-        (self.zither_total_depth, self.zither_total_af) = self._init_depth_freq(ref, alt, unfiltered_coverage)
+        (self.total_depth, self.total_af) = self._init_depth_freq(ref, alt, unfiltered_coverage)
         (self.filtered_depth, self.filtered_af) = self._init_depth_freq(ref, alt, filtered_coverage)
         
     def _init_depth_freq(self, ref, alt, coverage):
@@ -101,14 +101,14 @@ class _PileupStats(object):
                             coverage[1][0] +
                             coverage[2][0] +
                             coverage[3][0])
-        # zither_total_depth = ()
+        # total_depth = ()
         # filtered_depth = ()
         try:
             variant_count = coverage[self._PYSAM_BASE_INDEX[alt]][0]
             if total_depth and len(ref)==1:
                 freq = str(variant_count/total_depth)
-            #elif zither_total_depth and len(ref)==1:
-                #freq = str(variant_count/zither_total_depth)
+            #elif total_depth and len(ref)==1:
+                #freq = str(variant_count/total_depth)
             #elif filtered_depth and len(ref)==1:
                 #freq = str(variant_count/filtered_depth)
         except KeyError:
@@ -117,14 +117,17 @@ class _PileupStats(object):
 
         
 class _BamReader(object):
-    def __init__(self, bam_file_name):
+    def __init__(self, bam_file_name, basecall_quality_cutoff):
         self._bam_file_name = bam_file_name
+        #make cutoff inclusive (a cutoff of 20 will include bcq of 20)
+        self._basecall_quality_cutoff = basecall_quality_cutoff - 1
         #pylint: disable=no-member
         self._bam_file = pysam.AlignmentFile(bam_file_name, "rb")
 
     def __eq__(self, other):
         return (isinstance(other,_BamReader) and
-                self._bam_file_name == other._bam_file_name)
+                self._bam_file_name == other._bam_file_name and
+                self._basecall_quality_cutoff == other._basecall_quality_cutoff)
 
     def __hash__(self):
         return hash(self._bam_file_name)
@@ -137,12 +140,20 @@ class _BamReader(object):
                                                      stop=pos_one_based,
                                                      quality_threshold=-1,
                                                      read_callback='nofilter')
+
+            filtered_coverage = self._bam_file.count_coverage(chr=chrom,
+                                                              start=pos_zero_based,
+                                                              stop=pos_one_based,
+                                                              quality_threshold=self._basecall_quality_cutoff,
+                                                              read_callback='nofilter')
+
         except ValueError as samtools_error:
             if str(samtools_error).startswith("invalid reference"):
                 coverage = [[0], [0], [0], [0]]
+                filtered_coverage = [[0], [0], [0], [0]]
             else:
                 raise samtools_error
-        return _PileupStats(ref, alt, coverage, coverage)
+        return _PileupStats(ref, alt, coverage, filtered_coverage)
 
 class _Tag(object):
     _METAHEADER = '##FORMAT=<ID={},Number={},Type={},Description="{}">'
@@ -155,12 +166,12 @@ class _Tag(object):
         return str(self._get_value_method(pileup_stats)) 
 
 
-zither_total_depth = _Tag("ZTDP", "1", "Integer", "Zither total (unfiltered) BAM depth", lambda pileup_stats: pileup_stats.zither_total_depth) 
-zither_total_af = _Tag("ZTAF", "1", "Float", "Zither total (unfiltered) BAM alt frequency", lambda pileup_stats: pileup_stats.zither_total_af)
+total_depth = _Tag("ZTDP", "1", "Integer", "Zither total (unfiltered) BAM depth", lambda pileup_stats: pileup_stats.total_depth) 
+total_af = _Tag("ZTAF", "1", "Float", "Zither total (unfiltered) BAM alt frequency", lambda pileup_stats: pileup_stats.total_af)
 filtered_depth = _Tag("ZFDP", "1", "Integer", "Zither filtered BAM depth", lambda pileup_stats: pileup_stats.filtered_depth)
 filtered_af = _Tag("ZFAF", "1", "Float", "Zither filtered BAM alt frequency", lambda pileup_stats: pileup_stats.filtered_af)
 
-DEFAULT_TAGS = [zither_total_depth, zither_total_af, filtered_depth, filtered_af]
+DEFAULT_TAGS = [total_depth, total_af, filtered_depth, filtered_af]
 
         
 def _build_execution_context(argv):
@@ -186,10 +197,10 @@ def _get_sample_names(input_vcf):
                     sample_names = column_fields[9:(n+1)]
         return sample_names
 
-def _build_reader_dict(sample_bam_mapping):
+def _build_reader_dict(sample_bam_mapping, args):
     readers_dict = OrderedDict()
     for (sample, bam_file) in sample_bam_mapping.items():
-        readers_dict[sample] = _BamReader(bam_file)
+        readers_dict[sample] = _BamReader(bam_file, int(args.basecall_quality_cutoff))
     return readers_dict
 
 def _build_column_header_line(sample_names):
@@ -251,7 +262,8 @@ def _parse_command_line_args(arguments):
     parser.add_argument('--mapping_file',
                         help="Path to tab delimited list of VCF_sample_names "
                         "and BAM_file_names")
-    parser.add_argument('--base-call-quality',
+    parser.add_argument('--basecall_quality_cutoff',
+                        default=20,
                         help="minimum base-call quality to be included. "
                         "Defaults to 0 (include all)")
     parser.add_argument('--mapq_minimum',
@@ -266,7 +278,7 @@ def main(command_line_args):
     execution_context = _build_execution_context(command_line_args)
     strategy = _get_sample_bam_strategy(args)
     sample_bam_mapping = strategy.build_sample_bam_mapping()
-    reader_dict = _build_reader_dict(sample_bam_mapping)
+    reader_dict = _build_reader_dict(sample_bam_mapping, args)
     _create_vcf(args.input_vcf, reader_dict, execution_context)
 
 if __name__ == '__main__':
