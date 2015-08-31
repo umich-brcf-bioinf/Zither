@@ -243,32 +243,32 @@ def _create_vcf(input_vcf, sample_reader_dict, execution_context, tags=DEFAULT_T
                 print(a)
 
 def _parse_command_line_args(arguments):
-    parser = argparse.ArgumentParser(usage="zither [-h] [-V] input_vcf "
-                                     "input_bam",
-        description='''For all positions in VCF, pull raw depths and alt freqs "
-        "from BAM file, writing output as new VCF to stdout. Type 'zither -h' "
-        "for help''')
+    parser = argparse.ArgumentParser( \
+        usage="zither [-h] [-V] input_vcf input_bam",
+        description=("For all positions in VCF, pull raw depths and alt freqs " 
+                     "from BAM file, writing output as new VCF to stdout. "
+                     "Type 'zither -h' for help."))
 
     parser.add_argument("-V",
                         "--version",
                         action='version',
                         version=__version__)
     parser.add_argument('input_vcf',
-                        help="Path to input VCFs; all record locations will "
+                        help="path to input VCFs; all record locations will "
                         "appear in output file")
     parser.add_argument('--bam',
-                        help="Path to indexed BAM; used to calculate raw depth "
+                        help="path to indexed BAM; used to calculate raw depth "
                         "and frequency")
     parser.add_argument('--mapping_file',
-                        help="Path to tab delimited list of VCF_sample_names "
+                        help="path to tab delimited list of VCF_sample_names "
                         "and BAM_file_names")
     parser.add_argument('--basecall_quality_cutoff',
                         default=20,
                         help="minimum base-call quality to be included. "
-                        "Defaults to 0 (include all)")
-    parser.add_argument('--mapq_minimum',
-                        help="minimum mapping quality to be included. "
-                        "Defaults to 0 (include all)")
+                        "Defaults to 20")
+    # parser.add_argument('--mapq_minimum',
+                        # help="minimum mapping quality to be included. "
+                        # "Defaults to 0 (include all)")
     args = parser.parse_args(arguments)
     return args
 
