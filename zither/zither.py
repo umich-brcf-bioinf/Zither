@@ -273,7 +273,9 @@ def _parse_command_line_args(arguments):
     return args
 
 
-def main(command_line_args):
+def main(command_line_args=None):
+    if not command_line_args:
+        command_line_args = sys.argv
     args = _parse_command_line_args(command_line_args[1:])
     execution_context = _build_execution_context(command_line_args)
     strategy = _get_sample_bam_strategy(args)
