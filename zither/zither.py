@@ -135,7 +135,9 @@ class _BamReader(object):
 
     def get_pileup_stats(self, chrom, pos_one_based, ref, alt):
         pos_zero_based = pos_one_based - 1
+        temp_stdout = sys.stdout
         try:
+            sys.stdout = sys.__stdout__
             coverage = self._bam_file.count_coverage(chr=chrom,
                                                      start=pos_zero_based,
                                                      stop=pos_one_based,
@@ -154,6 +156,8 @@ class _BamReader(object):
                 filtered_coverage = [[0], [0], [0], [0]]
             else:
                 raise samtools_error
+        finally:
+            sys.stdout = temp_stdout
         return _PileupStats(ref, alt, coverage, filtered_coverage)
 
 class _Tag(object):
@@ -282,7 +286,8 @@ def main(command_line_args=None):
     strategy = _get_sample_bam_strategy(args)
     sample_bam_mapping = strategy.build_sample_bam_mapping()
     reader_dict = _build_reader_dict(sample_bam_mapping, args)
+    temp_stdout = sys.stdout
     _create_vcf(args.input_vcf, reader_dict, execution_context)
-
+    
 if __name__ == '__main__':
     main(sys.argv)

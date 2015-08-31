@@ -12,7 +12,7 @@ before_script:
     - pip install coveralls
 
 script: 
-    - nosetests --nocapture --with-coverage --verbose --cover-package=zither
+    - nosetests --with-coverage --verbose --cover-package=zither
 
 after_success:
     - coveralls
