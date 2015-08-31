@@ -123,6 +123,7 @@ class _BamReader(object):
         self._basecall_quality_cutoff = basecall_quality_cutoff - 1
         #pylint: disable=no-member
         self._bam_file = pysam.AlignmentFile(bam_file_name, "rb")
+        self._filtered_bam_file = pysam.AlignmentFile(bam_file_name, "rb")
 
     def __eq__(self, other):
         return (isinstance(other,_BamReader) and
@@ -141,11 +142,11 @@ class _BamReader(object):
                                                      quality_threshold=-1,
                                                      read_callback='nofilter')
 
-            filtered_coverage = self._bam_file.count_coverage(chr=chrom,
-                                                              start=pos_zero_based,
-                                                              stop=pos_one_based,
-                                                              quality_threshold=self._basecall_quality_cutoff,
-                                                              read_callback='nofilter')
+            filtered_coverage = self._filtered_bam_file.count_coverage(chr=chrom,
+                                                                       start=pos_zero_based,
+                                                                       stop=pos_one_based,
+                                                                       quality_threshold=self._basecall_quality_cutoff,
+                                                                       read_callback='nofilter')
 
         except ValueError as samtools_error:
             if str(samtools_error).startswith("invalid reference"):
