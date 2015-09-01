@@ -13,11 +13,11 @@
 ##   See the License for the specific language governing permissions and
 ##   limitations under the License.
 
-#pylint: disable=invalid-name, too-few-public-methods, too-many-locals
+#pylint: disable=invalid-name, too-few-public-methods
 from __future__ import print_function, absolute_import, division
 import argparse
 import csv
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from zither import __version__
 from datetime import datetime
 import os.path
@@ -88,24 +88,20 @@ def _get_sample_bam_strategy(args):
 
 
 class _PileupStats(object):
-    _PYSAM_BASE_INDEX = {'A':0, 'C':1, 'G':2, 'T':3}
-    def __init__(self, ref, alt, unfiltered_coverage, filtered_coverage):
+    def __init__(self, ref, alt, total_acgt, filtered_acgt):
         (self.total_depth,
-         self.total_af) = self._init_depth_freq(ref, alt, unfiltered_coverage)
+         self.total_af) = self._init_depth_freq(ref, alt, total_acgt)
         (self.filtered_depth,
-         self.filtered_af) = self._init_depth_freq(ref, alt, filtered_coverage)
+         self.filtered_af) = self._init_depth_freq(ref, alt, filtered_acgt)
 
-    def _init_depth_freq(self, ref, alt, coverage):
+    @staticmethod
+    def _init_depth_freq(ref, alt, acgt):
         alt = alt.upper()
         freq = _NULL
-        depth = (coverage[0][0] +
-                 coverage[1][0] +
-                 coverage[2][0] +
-                 coverage[3][0])
+        depth = sum(acgt.values())
         try:
-            variant_count = coverage[self._PYSAM_BASE_INDEX[alt]][0]
-            if depth and len(ref)==1:
-                freq = str(variant_count/depth)
+            if depth and len(ref) == 1 and len(alt) == 1:
+                freq = str(acgt[alt]/depth)
         except KeyError:
             freq = _NULL
         return (depth, freq)
@@ -114,8 +110,7 @@ class _PileupStats(object):
 class _BamReader(object):
     def __init__(self, bam_file_name, basecall_quality_cutoff):
         self._bam_file_name = bam_file_name
-        #make cutoff inclusive (a cutoff of 20 will include bcq of 20)
-        self._basecall_quality_cutoff = basecall_quality_cutoff - 1
+        self._basecall_quality_cutoff = basecall_quality_cutoff
         #pylint: disable=no-member
         self._bam_file = pysam.AlignmentFile(bam_file_name, "rb")
         self._filtered_bam_file = pysam.AlignmentFile(bam_file_name, "rb")
@@ -129,71 +124,36 @@ class _BamReader(object):
         return hash(self._bam_file_name)
 
     def get_pileup_stats(self, chrom, pos_one_based, ref, alt):
-        pos_zero_based = pos_one_based - 1
+        total_acgt = defaultdict(int)
+        filtered_acgt = defaultdict(int)
         try:
-            coverage2 = {}
-            coverage2["A"]=0
-            coverage2["C"]=0
-            coverage2["G"]=0
-            coverage2["T"]=0
-
-            coverage3 = {}
-            coverage3["A"]=0
-            coverage3["C"]=0
-            coverage3["G"]=0
-            coverage3["T"]=0
-
             pileupcolumns = self._filtered_bam_file.pileup(chrom,
-                                                           pos_zero_based,
+                                                           pos_one_based-1,
                                                            pos_one_based,
                                                            stepper='nofilter',
                                                            truncate=True)
             for pileupcolumn in pileupcolumns:
-#                if pileupcolumn.reference_pos < pos_zero_based:
-#                    continue
-#                if pileupcolumn.reference_pos > pos_zero_based:
-#                    break
                 for read in pileupcolumn.pileups:
+                    align = read.alignment
                     pos = read.query_position
                     if not read.is_del:
-                        base = read.alignment.query_sequence[pos]
-                        coverage2[base.upper()] += 1
-                        basecall_qual = read.alignment.query_qualities[pos]
-                        if basecall_qual > self._basecall_quality_cutoff:
-                            coverage3[base.upper()] += 1
-            coverage2 = [[coverage2["A"]],
-                         [coverage2["C"]],
-                         [coverage2["G"]],
-                         [coverage2["T"]]]
-            coverage3 = [[coverage3["A"]],
-                         [coverage3["C"]],
-                         [coverage3["G"]],
-                         [coverage3["T"]]]
-
-#             coverage = self._bam_file.count_coverage(chr=chrom,
-#                                                      start=pos_zero_based,
-#                                                      stop=pos_one_based,
-#                                                      quality_threshold=-1,
-#                                                      read_callback='nofilter')
-
-#             filtered_coverage = self._filtered_bam_file.count_coverage(chr=chrom,
-#                                                                        start=pos_zero_based,
-#                                                                        stop=pos_one_based,
-#                                                                        quality_threshold=self._basecall_quality_cutoff,
-#                                                                        read_callback='nofilter')
-
+                        base = align.query_sequence[pos].upper()
+                        total_acgt[base] += 1
+                        basecall_qual = align.query_qualities[pos]
+                        if basecall_qual >= self._basecall_quality_cutoff:
+                            filtered_acgt[base] += 1
         except ValueError as samtools_error:
             if str(samtools_error).startswith("invalid reference"):
-                coverage2 = [[0], [0], [0], [0]]
-                coverage3 = [[0], [0], [0], [0]]
-#                 coverage = [[0], [0], [0], [0]]
-#                 filtered_coverage = [[0], [0], [0], [0]]
+                #querying unknown chrom returns depth 0
+                pass
             else:
                 raise samtools_error
-        return _PileupStats(ref, alt, coverage2, coverage3)
+
+        return _PileupStats(ref, alt, total_acgt, filtered_acgt)
 
 class _Tag(object):
     _METAHEADER = '##FORMAT=<ID={},Number={},Type={},Description="{}">'
+    #pylint: disable=too-many-arguments
     def __init__(self, vcf_id, number, tag_type, description, stats_method):
         self.metaheader = self._METAHEADER.format(vcf_id,
                                                   number,
@@ -257,15 +217,31 @@ def _build_column_header_line(sample_names):
     column_headers.extend(sample_names)
     return '\t'.join(column_headers)
 
-def _create_vcf(input_vcf, sample_reader_dict, execution_context, tags=None):
-    if tags is None:
-        tags = DEFAULT_TAGS
-    exec_tags = ['{}="{}"'.format(k,v) for (k,v) in execution_context.items()]
+
+def _build_vcf_metaheaders(execution_context, tags):
+    exec_tags = ['{}="{}"'.format(k, v) for k, v in execution_context.items()]
     zither_metaheader = '##zither=<{}>'.format(",".join(exec_tags))
     vcf_headers = ['##fileformat=VCFv4.1']
     vcf_headers.extend([tag.metaheader for tag in tags])
     vcf_headers.append(zither_metaheader)
-    FORMAT = ":".join([tag.id for tag in tags])
+    return vcf_headers
+
+
+def _build_sample_fields(sample_reader_dict, tags, CHROM, POS, REF, ALT):
+    sample_fields = []
+    for sample_name in sample_reader_dict.keys():
+        bam_reader = sample_reader_dict[sample_name]
+        pileup_stats = bam_reader.get_pileup_stats(CHROM, int(POS), REF, ALT)
+        tag_values = [tag.get_value(pileup_stats) for tag in tags]
+        sample_fields.append(':'.join(tag_values))
+    return sample_fields
+
+
+def _create_vcf(input_vcf, sample_reader_dict, execution_context, tags=None):
+    if tags is None:
+        tags = DEFAULT_TAGS
+    vcf_headers = _build_vcf_metaheaders(execution_context, tags)
+    vcf_format = ":".join([tag.id for tag in tags])
     with open(input_vcf, 'r') as input_file:
 
         print("\n".join(vcf_headers))
@@ -277,18 +253,14 @@ def _create_vcf(input_vcf, sample_reader_dict, execution_context, tags=None):
                 vcf_fields.append('.')
                 vcf_fields.append('.')
                 vcf_fields.append('.')
-                vcf_fields.append(FORMAT)
-                for sample_name in sample_reader_dict.keys():
-                    bam_reader = sample_reader_dict[sample_name]
-                    pileup_stats = bam_reader.get_pileup_stats(CHROM,
-                                                               int(POS),
-                                                               REF,
-                                                               ALT)
-                    sample_field = [tag.get_value(pileup_stats) for tag in tags]
-                    sample_field_joint = ':'.join(sample_field)
-                    vcf_fields.append(sample_field_joint)
-                a = '\t'.join(vcf_fields)
-                print(a)
+                vcf_fields.append(vcf_format)
+                vcf_fields.extend(_build_sample_fields(sample_reader_dict,
+                                                       tags,
+                                                       CHROM,
+                                                       POS,
+                                                       REF,
+                                                       ALT))
+                print('\t'.join(vcf_fields))
 
 def _parse_command_line_args(arguments):
     parser = argparse.ArgumentParser( \

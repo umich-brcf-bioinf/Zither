@@ -63,6 +63,16 @@ def _get_line_starts_with(lines, starts_with):
             return line
     return None
 
+def _split_vcf_content(vcf_as_string):
+    header = ""
+    records = ""
+    for line in vcf_as_string.split("\n"):
+        if line.startswith("#"):
+            header += line + "\n"
+        else:
+            records += line + "\n"
+    return (header, records)
+
 
 class _BamFlag(object):
     #the read is paired in sequencing, no matter whether it is mapped in a pair
@@ -211,16 +221,16 @@ sB	/foo/bar/sB.bam
 
 class PileupStats(ZitherBaseTestCase):
     def test_init(self):
-        total_coverage = [[101], [102], [104], [108]]
-        filtered_coverage = [[1], [2], [4], [8]]
+        total_coverage = {"A":101, "C":102, "G":104, "T":108}
+        filtered_coverage = {"A":1, "C":2, "G":4, "T":8}
         stats = zither._PileupStats("A", "C", total_coverage, filtered_coverage)
         self.assertEquals(415, stats.total_depth)
         self.assertEquals(str(102/415), stats.total_af)
         self.assertEquals(15, stats.filtered_depth)
         self.assertEquals(str(2/15), stats.filtered_af)
-    
+
     def test_noDepth(self):
-        coverage = [[0], [0], [0], [0]]
+        coverage = {"A":0, "C":0, "G":0, "T":0}
         stats = zither._PileupStats("A", "C", coverage, coverage)
         self.assertEquals(0, stats.total_depth)
         self.assertEquals(".", stats.total_af)
@@ -228,15 +238,15 @@ class PileupStats(ZitherBaseTestCase):
         self.assertEquals(".", stats.filtered_af)
 
     def test_insertionReturnsNull(self):
-        coverage = [[1], [2], [4], [8]]
+        coverage = {"A":1, "C":2, "G":4, "T":8}
         stats = zither._PileupStats("A", "ACGT", coverage, coverage)
         self.assertEquals(15, stats.total_depth)
         self.assertEquals(".", stats.total_af)
         self.assertEquals(15, stats.filtered_depth)
         self.assertEquals(".", stats.filtered_af)
-        
+
     def test_deletionReturnsNull(self):
-        coverage = [[1], [2], [4], [8]]
+        coverage = {"A":1, "C":2, "G":4, "T":8}
         stats = zither._PileupStats("ACGT", "A", coverage, coverage)
         self.assertEquals(15, stats.total_depth)
         self.assertEquals(".", stats.total_af)
@@ -244,7 +254,7 @@ class PileupStats(ZitherBaseTestCase):
         self.assertEquals(".", stats.filtered_af)
 
     def test_multaltReturnsNull(self):
-        coverage = [[1], [2], [4], [8]]
+        coverage = {"A":1, "C":2, "G":4, "T":8}
         stats = zither._PileupStats("A", "C,G", coverage, coverage)
         self.assertEquals(15, stats.total_depth)
         self.assertEquals(".", stats.total_af)
@@ -256,7 +266,8 @@ class TagTestCase(ZitherBaseTestCase):
     def test_init(self):
         tag = zither._Tag("foo", "42", "Integer", "hoopy thing", None)
         self.assertEquals("foo", tag.id)
-        self.assertEquals('##FORMAT=<ID=foo,Number=42,Type=Integer,Description="hoopy thing">', 
+        self.assertEquals(('##FORMAT=<ID=foo,Number=42,Type=Integer,'
+                           'Description="hoopy thing">'),
                           tag.metaheader)
 
     def test_get_value(self):
@@ -264,10 +275,11 @@ class TagTestCase(ZitherBaseTestCase):
             def __init__(self, total_depth=42):
                 self.total_depth = total_depth
         pileup_stats = MockPileupStats()
-        tag = zither._Tag("1", "2", "3", "4", lambda pileup_stats: pileup_stats.total_depth)
+        tag = zither._Tag("1", "2", "3", "4",
+                          lambda pileup_stats: pileup_stats.total_depth)
         self.assertEquals("42", tag.get_value(pileup_stats))
-        
-        
+
+
 class BamReaderTestCase(ZitherBaseTestCase):
     def test_equals(self):
         sam_contents = \
@@ -280,13 +292,17 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             bam_a = _create_bam(tmp_path, "sample_A.sam", sam_contents)
             bam_b = _create_bam(tmp_path, "sample_B.sam", sam_contents)
 
-            base = zither._BamReader(bam_a, basecall_quality_cutoff=20)
-            base_equivalent = zither._BamReader(bam_a, basecall_quality_cutoff=20)
+            base = zither._BamReader(bam_a,
+                                     basecall_quality_cutoff=20)
+            base_equivalent = zither._BamReader(bam_a,
+                                                basecall_quality_cutoff=20)
             self.assertEquals(base, base_equivalent)
-            different_file = zither._BamReader(bam_b, basecall_quality_cutoff=20)
-            self.assertNotEquals(base, different_file)
-            different_basecall_quality = zither._BamReader(bam_a, basecall_quality_cutoff=0)
-            self.assertNotEquals(base, different_basecall_quality)
+            diff_file = zither._BamReader(bam_b,
+                                          basecall_quality_cutoff=20)
+            self.assertNotEquals(base, diff_file)
+            diff_basecall_quality = zither._BamReader(bam_a,
+                                                      basecall_quality_cutoff=0)
+            self.assertNotEquals(base, diff_basecall_quality)
 
     def test_hash(self):
         sam_contents = \
@@ -348,7 +364,6 @@ readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	!!!!!
             self.assertEquals(1, actual_stats.filtered_depth)
             self.assertEquals('1.0', actual_stats.filtered_af)
 
-            
     def test_get_pileup_stats_ignoresDeletions(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
@@ -468,7 +483,7 @@ readNameA	99	chr10	5	0	4M2I4M	=	105	0	ACGTTTACGT	>>>>>>>>>>
                                                    alt="A")
             self.assertEquals(2, actual_stats.total_depth)
             self.assertEquals('1.0', actual_stats.total_af)
-            
+
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                    pos_one_based=9,
                                                    ref="C",
@@ -493,7 +508,7 @@ readNameA	147	chr10	7	0	4M	=	105	0	TTTT	>>>>
                                                             alt="A")
 
             self.assertEquals(1, actual_stats.total_depth)
-            
+
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=6,
                                                             ref="C",
@@ -513,7 +528,7 @@ readNameA	147	chr10	7	0	4M	=	105	0	TTTT	>>>>
                                                             alt="A")
 
             self.assertEquals(2, actual_stats.total_depth)
-            
+
             actual_stats = reader.get_pileup_stats(chrom="chr10",
                                                             pos_one_based=9,
                                                             ref="C",
@@ -645,7 +660,7 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
                                                    alt="A")
             self.assertEquals(0, actual_stats.total_depth)
 
-    def test_get_pileup_stats_chromosomeAbsentFromSequenceHeaderReturnsDepth0(self):
+    def test_get_pileup_stats_chromAbsentFromSequenceHeaderReturnsDepth0(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
 @SQ	SN:chr10	LN:135534747
@@ -661,17 +676,7 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
                                                    alt="A")
             self.assertEquals(0, actual_stats.total_depth)
 
-            
-def _split_vcf_content(vcf_as_string):
-    header = ""
-    records = ""
-    for line in vcf_as_string.split("\n"):
-        if line.startswith("#"):
-            header += line + "\n"
-        else: 
-            records += line + "\n"
-    return (header, records)
-    
+
 class ZitherTestCase(ZitherBaseTestCase):
     def test_build_execution_context(self):
         argv = ["zither", "foo", "bar", "baz"]
@@ -713,10 +718,12 @@ readA	99	chr1	10	0	1M	=	105	0	C	>
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_A
 '''
 
-        tag1 = zither._Tag("FOO", "1", "Float", "Foo tag", lambda pileup_stats: "foo_value")
-        tag2 = zither._Tag("BAR", "1", "Float", "Bar tag", lambda pileup_stats: "bar_value")
+        tag1 = zither._Tag("FOO", "1", "Float", "Foo tag",
+                           lambda pileup_stats: "foo_value")
+        tag2 = zither._Tag("BAR", "1", "Float", "Bar tag",
+                           lambda pileup_stats: "bar_value")
         tags = [tag1, tag2]
-        
+
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
             input_vcf = _create_file(tmp_path, "input.vcf", input_vcf_contents)
@@ -752,8 +759,10 @@ chr10	10	.	C	G	.	.	.	FOO:BAR	foo_value:bar_value
 chr15	42	.	G	T	.	.	.	FOO:BAR	foo_value:bar_value
 '''
 
-        tag1 = zither._Tag("FOO", "1", "Float", "Foo tag", lambda pileup_stats: "foo_value")
-        tag2 = zither._Tag("BAR", "1", "Float", "Bar tag", lambda pileup_stats: "bar_value")
+        tag1 = zither._Tag("FOO", "1", "Float", "Foo tag",
+                           lambda pileup_stats: "foo_value")
+        tag2 = zither._Tag("BAR", "1", "Float", "Bar tag",
+                           lambda pileup_stats: "bar_value")
         tags = [tag1, tag2]
 
         with TempDirectory() as tmp_dir:
@@ -797,9 +806,10 @@ readA	99	chr1	10	0	1M	=	105	0	C	>
 chr10	10	.	C	G	.	.	.	FOO:BAR	foo_value:bar_value	foo_value:bar_value
 '''
 
-        tag1 = zither._Tag("FOO", "1", "Float", "Foo tag", lambda pileup_stats: "foo_value")
-        tag2 = zither._Tag("BAR", "1", "Float", "Bar tag", lambda pileup_stats: "bar_value")
-        tags = [tag1, tag2]
+        tag1 = zither._Tag("FOO", "1", "Float", "Foo tag",
+                           lambda pileup_stats: "foo_value")
+        tag2 = zither._Tag("BAR", "1", "Float", "Bar tag",
+                           lambda pileup_stats: "bar_value")
 
         with TempDirectory() as tmp_dir:
             tmp_path = tmp_dir.path
@@ -811,7 +821,7 @@ chr10	10	.	C	G	.	.	.	FOO:BAR	foo_value:bar_value	foo_value:bar_value
                                     ("sample_A", zither._BamReader(bam_A, 20)),
                                     ("sample_B", zither._BamReader(bam_B, 20))
                                     ])
-            zither._create_vcf(input_vcf, sample_reader_dict, {}, tags)
+            zither._create_vcf(input_vcf, sample_reader_dict, {}, [tag1, tag2])
 
             actual_output_lines = self.stdout.getvalue()
             actual_records = _split_vcf_content(actual_output_lines)[1]
@@ -889,13 +899,15 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
 
             sample_bam_mapping = {'sA':bam_A, 'sB':bam_B}
             args = Namespace(basecall_quality_cutoff=42)
-            
+
             actual_mapping = zither._build_reader_dict(sample_bam_mapping, args)
             self.assertEquals(["sA", "sB"],
                               sorted(actual_mapping.keys()))
-            self.assertEquals(zither._BamReader(bam_A, basecall_quality_cutoff=42),
+            self.assertEquals(zither._BamReader(bam_A,
+                                                basecall_quality_cutoff=42),
                               actual_mapping["sA"])
-            self.assertEquals(zither._BamReader(bam_B, basecall_quality_cutoff=42),
+            self.assertEquals(zither._BamReader(bam_B,
+                                                basecall_quality_cutoff=42),
                               actual_mapping["sB"])
 
     def test_build_reader_dict_preservesSampleOrder(self):
