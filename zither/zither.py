@@ -1,4 +1,8 @@
+'''
+Zither pulls raw depths and alt freqs from BAM file(s) based on loci in an
+existing VCF; writes a new VCF to stdout.
 
+'''
 ##   Copyright 2014 Bioinformatics Core, University of Michigan
 ##
 ##   Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,7 +40,37 @@ _VCF_FIXED_HEADERS = ["#CHROM",
 
 _NULL = "."
 
+_DEFAULT_DEPTH_CUTOFF = 100000
+'''For a given position, reads will only be counted up to this cutoff.'''
+
+_DEFAULT_BASECALL_QUALITY_CUTOFF = 20
+'''Bases below this quality will be ignored in filtered tag calculations.'''
+
+class ZitherException(Exception):
+    """Base class for all run-time exceptions in this module."""
+    def __init__(self, msg, *args):
+        #pylint: disable=star-args
+        error_msg = msg.format(*[str(i) for i in args])
+        super(ZitherException, self).__init__(error_msg)
+
+
+class ZitherUsageError(ZitherException):
+    """Raised for malformed command or invalid arguments."""
+    def __init__(self, msg, *args):
+        super(ZitherUsageError, self).__init__(msg, *args)
+
+
+class _ZitherArgumentParser(argparse.ArgumentParser):
+    """Argument parser that raises UsageError instead of exiting."""
+    #pylint: disable=too-few-public-methods
+    def error(self, message):
+        '''Suppress default exit behavior'''
+        raise ZitherUsageError(message)
+
+
 class _ExplicitBamFileStrategy(object):
+    '''Returns single entry dict of sample name and bam path derived from
+    explicit bam file'''
     def __init__(self, bam_file_path):
         self._bam_file_path = bam_file_path
 
@@ -47,6 +81,8 @@ class _ExplicitBamFileStrategy(object):
 
 
 class _MappingFileStrategy(object):
+    '''Returns dict of sample names and bam paths derived from
+    explicit tab separated mapping file'''
     def __init__(self, mapping_file):
         self._mapping_file = mapping_file
 
@@ -64,6 +100,8 @@ class _MappingFileStrategy(object):
         return sample_bam_mapping
 
 class _MatchingNameStrategy(object):
+    '''Returns dict of sample names and bam path derived from
+    sample names in VCF'''
     def __init__(self, sample_names, input_vcf_path):
         self._sample_names = sample_names
         self._input_vcf_path = input_vcf_path
@@ -88,6 +126,7 @@ def _get_sample_bam_strategy(args):
 
 
 class _PileupStats(object):
+    ''''Calculate basic stats based on dict of counts for A,C,G,T'''
     def __init__(self, ref, alt, total_acgt, filtered_acgt):
         (self.total_depth,
          self.total_af) = self._init_depth_freq(ref, alt, total_acgt)
@@ -106,14 +145,17 @@ class _PileupStats(object):
             freq = _NULL
         return (depth, freq)
 
-
 class _BamReader(object):
-    def __init__(self, bam_file_name, basecall_quality_cutoff):
+    '''Reads pileup stats from BAM file. (Assumes BAM index is present.)'''
+    def __init__(self,
+                 bam_file_name,
+                 basecall_quality_cutoff,
+                 depth_cutoff=_DEFAULT_DEPTH_CUTOFF):
         self._bam_file_name = bam_file_name
         self._basecall_quality_cutoff = basecall_quality_cutoff
+        self._depth_cutoff = depth_cutoff + 1
         #pylint: disable=no-member
         self._bam_file = pysam.AlignmentFile(bam_file_name, "rb")
-        self._filtered_bam_file = pysam.AlignmentFile(bam_file_name, "rb")
 
     def __eq__(self, other):
         return (isinstance(other,_BamReader) and
@@ -123,15 +165,17 @@ class _BamReader(object):
     def __hash__(self):
         return hash(self._bam_file_name)
 
+#TODO: (cgates): Consider refactor to filter method
     def get_pileup_stats(self, chrom, pos_one_based, ref, alt):
         total_acgt = defaultdict(int)
         filtered_acgt = defaultdict(int)
         try:
-            pileupcolumns = self._filtered_bam_file.pileup(chrom,
-                                                           pos_one_based-1,
-                                                           pos_one_based,
-                                                           stepper='nofilter',
-                                                           truncate=True)
+            pileupcolumns = self._bam_file.pileup(chrom,
+                                                  pos_one_based-1,
+                                                  pos_one_based,
+                                                  stepper='nofilter',
+                                                  truncate=True,
+                                                  max_depth=self._depth_cutoff)
             for pileupcolumn in pileupcolumns:
                 for read in pileupcolumn.pileups:
                     align = read.alignment
@@ -152,6 +196,8 @@ class _BamReader(object):
         return _PileupStats(ref, alt, total_acgt, filtered_acgt)
 
 class _Tag(object):
+    '''Holds the tag metadata along with a way to extract a value from
+    pileup stats'''
     _METAHEADER = '##FORMAT=<ID={},Number={},Type={},Description="{}">'
     #pylint: disable=too-many-arguments
     def __init__(self, vcf_id, number, tag_type, description, stats_method):
@@ -183,6 +229,7 @@ DEFAULT_TAGS = [total_depth, total_af, filtered_depth, filtered_af]
 
 
 def _build_execution_context(argv):
+    '''Execution context is included in output VCF for reproducibility'''
     return OrderedDict([("timestamp",
                          datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
                         ("command",
@@ -193,6 +240,7 @@ def _build_execution_context(argv):
                          __version__)])
 
 def _get_sample_names(input_vcf):
+    '''Returns list of sample names from input VCF'''
     with open(input_vcf, 'r') as input_file:
         column_header = None
         sample_names = []
@@ -206,10 +254,13 @@ def _get_sample_names(input_vcf):
         return sample_names
 
 def _build_reader_dict(sample_bam_mapping, args):
+    '''Given a sample name to bam path mapping, return dict of sample_name
+    to BamReader'''
     readers_dict = OrderedDict()
     for (sample, bam_file) in sample_bam_mapping.items():
         readers_dict[sample] = _BamReader(bam_file,
-                                          int(args.basecall_quality_cutoff))
+                                          int(args.basecall_quality_cutoff),
+                                          int(args.depth_cutoff))
     return readers_dict
 
 def _build_column_header_line(sample_names):
@@ -238,6 +289,7 @@ def _build_sample_fields(sample_reader_dict, tags, CHROM, POS, REF, ALT):
 
 
 def _create_vcf(input_vcf, sample_reader_dict, execution_context, tags=None):
+    '''Reads input VCF and emits output VCF with new Zither tags.'''
     if tags is None:
         tags = DEFAULT_TAGS
     vcf_headers = _build_vcf_metaheaders(execution_context, tags)
@@ -263,11 +315,15 @@ def _create_vcf(input_vcf, sample_reader_dict, execution_context, tags=None):
                 print('\t'.join(vcf_fields))
 
 def _parse_command_line_args(arguments):
-    parser = argparse.ArgumentParser( \
-        usage="zither [-h] [-V] input_vcf input_bam",
-        description=("For all positions in VCF, pull raw depths and alt freqs "
-                     "from BAM file, writing output as new VCF to stdout. "
-                     "Type 'zither -h' for help."))
+    parser = _ZitherArgumentParser( \
+        formatter_class=argparse.RawTextHelpFormatter,
+        usage="zither input_vcf",
+        description=(\
+'''For all positions in VCF, pull raw depths and alt freqs from BAM file,
+writing output as new VCF to stdout.
+By default, bams must be in same dir as VCF and bam filenames must match VCF
+sample names. See below for alternative approaches (for example, --bam
+and --mapping_file).'''))
 
     parser.add_argument("-V",
                         "--version",
@@ -283,22 +339,33 @@ def _parse_command_line_args(arguments):
                         help="path to tab delimited list of VCF_sample_names "
                         "and BAM_file_names")
     parser.add_argument('--basecall_quality_cutoff',
-                        default=20,
+                        default=_DEFAULT_BASECALL_QUALITY_CUTOFF,
                         help="minimum base-call quality to be included. "
-                        "Defaults to 20")
+                        "Defaults to " + str(_DEFAULT_BASECALL_QUALITY_CUTOFF))
+    parser.add_argument('--depth_cutoff',
+                        default=_DEFAULT_DEPTH_CUTOFF,
+                        help="maximum pileup depth for a given position. "
+                        "Defaults to " + str(_DEFAULT_DEPTH_CUTOFF))
     args = parser.parse_args(arguments)
     return args
 
 
 def main(command_line_args=None):
-    if not command_line_args:
-        command_line_args = sys.argv
-    args = _parse_command_line_args(command_line_args[1:])
-    execution_context = _build_execution_context(command_line_args)
-    strategy = _get_sample_bam_strategy(args)
-    sample_bam_mapping = strategy.build_sample_bam_mapping()
-    reader_dict = _build_reader_dict(sample_bam_mapping, args)
-    _create_vcf(args.input_vcf, reader_dict, execution_context)
+    '''Zither entry point.'''
+    try:
+        if not command_line_args:
+            command_line_args = sys.argv
+        args = _parse_command_line_args(command_line_args[1:])
+        execution_context = _build_execution_context(command_line_args)
+        strategy = _get_sample_bam_strategy(args)
+        sample_bam_mapping = strategy.build_sample_bam_mapping()
+        reader_dict = _build_reader_dict(sample_bam_mapping, args)
+        _create_vcf(args.input_vcf, reader_dict, execution_context)
+    except ZitherUsageError as usage_error:
+        message = "Zither usage problem: {}".format(str(usage_error))
+        print(message, file=sys.stderr)
+        print("See 'zither --help'.", file=sys.stderr)
+        sys.exit(1)
 
 if __name__ == '__main__':
     main(sys.argv)

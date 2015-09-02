@@ -364,6 +364,44 @@ readNameB	99	chr10	6	0	5M	=	106	0	CCCCC	!!!!!
             self.assertEquals(1, actual_stats.filtered_depth)
             self.assertEquals('1.0', actual_stats.filtered_af)
 
+
+    def test_get_pileup_stats_downsamples(self):
+        sam_contents = \
+'''@HD|VN:1.4|GO:none|SO:coordinate
+@SQ|SN:chr10|LN:135534747
+readName1|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+readName2|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+readName3|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+readName4|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+readName5|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+readName6|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+readName7|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+readName8|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+readName9|99|chr10|5|0|5M|=|105|0|AAAAA|~~~~~
+'''.replace("|", "\t")
+        with TempDirectory() as tmp_dir:
+            input_bam = _create_bam(tmp_dir.path, "test.sam", sam_contents)
+            reader = zither._BamReader(input_bam,
+                                       basecall_quality_cutoff = 20,
+                                       depth_cutoff = 5)
+
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                         pos_one_based=5,
+                                                         ref="C",
+                                                         alt="A")
+            self.assertEquals(5, actual_stats.total_depth)
+            self.assertEquals('1.0', actual_stats.total_af)
+
+            reader = zither._BamReader(input_bam,
+                                       basecall_quality_cutoff = 20,
+                                       depth_cutoff = 10)
+            actual_stats = reader.get_pileup_stats(chrom="chr10",
+                                                         pos_one_based=5,
+                                                         ref="C",
+                                                         alt="A")
+            self.assertEquals(9, actual_stats.total_depth)
+            self.assertEquals('1.0', actual_stats.total_af)
+
     def test_get_pileup_stats_ignoresDeletions(self):
         sam_contents = \
 '''@HD	VN:1.4	GO:none	SO:coordinate
@@ -678,6 +716,25 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 
 
 class ZitherTestCase(ZitherBaseTestCase):
+    def test_parse_command_line_args_raisesUsageErrorOnMissingArgs(self):
+        self.assertRaisesRegexp(zither.ZitherUsageError,
+                                "too few arguments",
+                                zither._parse_command_line_args,
+                                [])
+
+    def test_parse_command_line_args_checkDefaults(self):
+        args = zither._parse_command_line_args(["foo.vcf",
+                                                "--bam",
+                                                "bam_value",
+                                                "--mapping_file",
+                                                "mapping_file_value"])
+        self.assertEquals("foo.vcf", args.input_vcf)
+        self.assertEquals("bam_value", args.bam)
+        self.assertEquals("mapping_file_value", args.mapping_file)
+        self.assertEquals(20, args.basecall_quality_cutoff)
+        self.assertEquals(100000, args.depth_cutoff)
+        self.assertEquals(5, len(vars(args)))
+
     def test_build_execution_context(self):
         argv = ["zither", "foo", "bar", "baz"]
         actual_text = zither._build_execution_context(argv)
@@ -898,7 +955,7 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             bam_B = _create_bam(tmp_path, "sample_B.sam", sam_contents)
 
             sample_bam_mapping = {'sA':bam_A, 'sB':bam_B}
-            args = Namespace(basecall_quality_cutoff=42)
+            args = Namespace(basecall_quality_cutoff=42, depth_cutoff=8000)
 
             actual_mapping = zither._build_reader_dict(sample_bam_mapping, args)
             self.assertEquals(["sA", "sB"],
@@ -922,7 +979,7 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             bam_B = _create_bam(tmp_path, "sample_1.sam", sam_contents)
 
             sample_bam_mapping = OrderedDict([('sX', bam_A),('s1', bam_B)])
-            args = Namespace(basecall_quality_cutoff = 0)
+            args = Namespace(basecall_quality_cutoff = 0, depth_cutoff=8000)
             actual_mapping = zither._build_reader_dict(sample_bam_mapping, args)
             self.assertEquals(["sX", "s1"],
                               list(actual_mapping.keys()))
