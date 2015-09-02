@@ -44,7 +44,10 @@ def _pysam_bam_from_sam(sam_filename, bam_filename):
         sys.stdout = sys.__stdout__
         bam = PYSAM_VIEW("-S", "-b", sam_filename)
         bam_file = open(bam_filename, "wb")
-        bam_file.writelines(bam)
+        if isinstance(bam, bytes): #python3 
+            bam_file.write(bam) 
+        else: #python2 
+            bam_file.writelines(bam) 
         bam_file.close()
         PYSAM_INDEX(bam_filename)
 
@@ -225,9 +228,9 @@ class PileupStats(ZitherBaseTestCase):
         filtered_coverage = {"A":1, "C":2, "G":4, "T":8}
         stats = zither._PileupStats("A", "C", total_coverage, filtered_coverage)
         self.assertEquals(415, stats.total_depth)
-        self.assertEquals(str(102/415), stats.total_af)
+        self.assertAlmostEqual(102/415, float(stats.total_af), places=6)
         self.assertEquals(15, stats.filtered_depth)
-        self.assertEquals(str(2/15), stats.filtered_af)
+        self.assertAlmostEqual(2/15, float(stats.filtered_af), places=6)
 
     def test_noDepth(self):
         coverage = {"A":0, "C":0, "G":0, "T":0}
@@ -717,8 +720,9 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 
 class ZitherTestCase(ZitherBaseTestCase):
     def test_parse_command_line_args_raisesUsageErrorOnMissingArgs(self):
+        #two regex below because lib changed from py2 to py3
         self.assertRaisesRegexp(zither.ZitherUsageError,
-                                "too few arguments",
+                                r"(too few arguments)|(arguments are required)",
                                 zither._parse_command_line_args,
                                 [])
 
@@ -1062,3 +1066,31 @@ class ZitherFunctionalTestCase(ZitherBaseTestCase):
             zither.main(args)
             actual_output_lines = self.stdout.getvalue()
             self._compare_lines(expected_vcf_contents, actual_output_lines)
+
+class RoundDigitsTestCase(ZitherBaseTestCase):
+    def test_round_digits_noRounding(self):
+        val = 42
+        expected = "42"
+        actual = zither._round_digits(val)
+        self.assertEquals(expected, actual)
+
+        val = 1.12345
+        expected = "1.12345"
+        actual = zither._round_digits(val)
+        self.assertEquals(expected, actual)
+
+        val = 1234567.1
+        expected = "1234567.1"
+        actual = zither._round_digits(val)
+        self.assertEquals(expected, actual)
+
+    def test_round_digits_rounding(self):
+        val = 1.0000011
+        expected = "1.000001"
+        actual = zither._round_digits(val)
+        self.assertEquals(expected, actual)
+
+        val = 1.0000016
+        expected = "1.000002"
+        actual = zither._round_digits(val)
+        self.assertEquals(expected, actual)
