@@ -4,8 +4,8 @@ Zither
 
 Command-line tool to pull raw depths and alt freqs from BAM file(s) based on an existing VCF, writing output as new VCF to stdout.
 
-.. image:: https://travis-ci.org/umich-brcf-bioinf/zither.svg?branch=develop
-    :target: https://travis-ci.org/umich-brcf-bioinf/zither
+.. image:: https://travis-ci.org/umich-brcf-bioinf/Zither.svg?branch=develop
+    :target: https://travis-ci.org/umich-brcf-bioinf/Zither
     :alt: Build Status
 
 .. image:: https://coveralls.io/repos/umich-brcf-bioinf/zither/badge.svg?branch=develop&service=github
