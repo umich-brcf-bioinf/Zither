@@ -1,10 +1,12 @@
 ##fileformat=VCFv4.1
-##FORMAT=<ID=BDP,Number=1,Type=Integer,Description="BAM depth">
-##FORMAT=<ID=BAF,Number=1,Type=Float,Description="BAM alt frequency">
-##zither=<timestamp="2015-07-31 18:35:07",command="/ccmb/BioinfCore/SoftwareDev/projects/zither/zither/__main__.py /ccmb/BioinfCore/SoftwareDev/projects/zither_examples/N0_vs_T0.varscan.snp_smaller.vcf",cwd="/ccmb/BioinfCore/SoftwareDev/projects",version="0.1">
+##FORMAT=<ID=ZTDP,Number=1,Type=Integer,Description="Zither total (unfiltered) BAM depth; deletions excluded">
+##FORMAT=<ID=ZTAF,Number=1,Type=Float,Description="Zither total (unfiltered) BAM alt frequency; (alt count/total count) rounded to 6 decimals">
+##FORMAT=<ID=ZFDP,Number=1,Type=Integer,Description="Zither filtered BAM depth; deletions excluded">
+##FORMAT=<ID=ZFAF,Number=1,Type=Float,Description="Zither filtered BAM alt frequency; (alt count/total count) rounded to 6 decimals">
+##zither=<timestamp="2015-07-31 18:35:07",command="zither examples/input.vcf --bam sample_X.bam",cwd="~",version="0.x">
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	sample_X
-chr10	93505	.	C	T	.	.	.	BDP:BAF	81:0.0987654320988
-chr10	93603	.	C	T	.	.	.	BDP:BAF	116:0.974137931034
-chr10	93816	.	C	T	.	.	.	BDP:BAF	204:0.357843137255
-chr10	93945	.	G	A	.	.	.	BDP:BAF	219:0.543378995434
-chr10	93978	.	G	A	.	.	.	BDP:BAF	204:0.176470588235
+chr10	93505	.	C	T	.	.	.	ZTDP:ZTAF:ZFDP:ZFAF	81:0.098765:80:0.1
+chr10	93603	.	C	T	.	.	.	ZTDP:ZTAF:ZFDP:ZFAF	116:0.974138:111:0.972973
+chr10	93816	.	C	T	.	.	.	ZTDP:ZTAF:ZFDP:ZFAF	204:0.357843:197:0.355330
+chr10	93945	.	G	A	.	.	.	ZTDP:ZTAF:ZFDP:ZFAF	219:0.543379:210:0.533333
+chr10	93978	.	G	A	.	.	.	ZTDP:ZTAF:ZFDP:ZFAF	204:0.176471:192:0.177083
