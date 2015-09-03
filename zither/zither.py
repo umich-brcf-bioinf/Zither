@@ -158,7 +158,7 @@ class _BamReader(object):
     def __init__(self,
                  bam_file_name,
                  basecall_quality_cutoff,
-                 depth_cutoff=_DEFAULT_DEPTH_CUTOFF):
+                 depth_cutoff):
         self._bam_file_name = bam_file_name
         self._basecall_quality_cutoff = basecall_quality_cutoff
         self._depth_cutoff = depth_cutoff + 1
@@ -168,7 +168,8 @@ class _BamReader(object):
     def __eq__(self, other):
         return (isinstance(other,_BamReader) and
                 self._bam_file_name == other._bam_file_name and
-                self._basecall_quality_cutoff == other._basecall_quality_cutoff)
+                self._basecall_quality_cutoff == other._basecall_quality_cutoff and
+                self._depth_cutoff == other._depth_cutoff)
 
     def __hash__(self):
         return hash(self._bam_file_name)
