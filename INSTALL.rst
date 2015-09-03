@@ -1,6 +1,6 @@
 Installing Zither
-==================
-Zither has been tested with Python 2.7 on \*nix.
+=================
+Zither has been tested with Python 2.7 and Python 3.4 on \*nix and OSX.
 
 Prerequisites
 -------------
@@ -26,6 +26,6 @@ If you already have pysam installed, you can also clone from github and run dire
 
 ``$ git clone https://github.com/umich-brcf-bioinf/Zither``
 
-``$ Zither/zither_runner.py --bam input.bam input.vcf > zither.vcf``
+``$ Zither/zither-runner.py --bam input.bam input.vcf > zither.vcf``
   
 
