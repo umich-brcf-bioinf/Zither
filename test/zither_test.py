@@ -230,6 +230,16 @@ class PileupStats(ZitherBaseTestCase):
         self.assertAlmostEqual(102/415, float(stats.total_af), places=6)
         self.assertEquals(15, stats.filtered_depth)
         self.assertAlmostEqual(2/15, float(stats.filtered_af), places=6)
+        self.assertEquals("101,102,104,108", stats.total_depth_acgt)
+        self.assertEquals("1,2,4,8", stats.filtered_depth_acgt)
+
+    def test_coverage_incomplete(self):
+        coverage = {"A":1, "C":2, "G":4}
+        stats = zither._PileupStats("A", "T", coverage, coverage)
+        self.assertEquals(7, stats.filtered_depth)
+        self.assertEqual(".", stats.filtered_af)
+        self.assertEquals("1,2,4,0", stats.total_depth_acgt)
+        self.assertEquals("1,2,4,0", stats.filtered_depth_acgt)
 
     def test_is_snp(self):
         self.assertEquals(True, zither._PileupStats._is_snp("A", "C"))
@@ -741,6 +751,16 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
 
 
 class ZitherTestCase(ZitherBaseTestCase):
+    def test_default_tags(self):
+        tag_ids = [tag.id for tag in zither.DEFAULT_TAGS]
+        self.assertIn("ZTDP", tag_ids)
+        self.assertIn("ZTAF", tag_ids)
+        self.assertIn("ZTDP_ACGT", tag_ids)
+        self.assertIn("ZFDP", tag_ids)
+        self.assertIn("ZFAF", tag_ids)
+        self.assertIn("ZFDP_ACGT", tag_ids)
+        self.assertEquals(6, len(zither.DEFAULT_TAGS))
+
     def test_parse_command_line_args_raisesUsageErrorOnMissingArgs(self):
         #two regex below because lib changed from py2 to py3
         self.assertRaisesRegexp(zither.ZitherUsageError,

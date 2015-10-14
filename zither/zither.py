@@ -137,8 +137,10 @@ class _PileupStats(object):
     ''''Calculate basic stats based on dict of counts for A,C,G,T'''
     def __init__(self, ref, alt, total_acgt, filtered_acgt):
         (self.total_depth,
+         self.total_depth_acgt,
          self.total_af) = self._init_depth_freq(ref, alt, total_acgt)
         (self.filtered_depth,
+         self.filtered_depth_acgt,
          self.filtered_af) = self._init_depth_freq(ref, alt, filtered_acgt)
 
     @staticmethod
@@ -164,7 +166,12 @@ class _PileupStats(object):
                 freq = ",".join(freqs)
         except KeyError:
             freq = _NULL
-        return (depth, freq)
+
+        depth_acgt = "{},{},{},{}".format(acgt.get("A",0),
+                                          acgt.get("C",0),
+                                          acgt.get("G", 0),
+                                          acgt.get("T",0))
+        return (depth, depth_acgt, freq)
 
 class _BamReader(object):
     '''Reads pileup stats from BAM file. (Assumes BAM index is present.)'''
@@ -234,22 +241,36 @@ class _Tag(object):
         return str(self._get_value_method(pileup_stats))
 
 
-total_depth = _Tag("ZTDP", "1", "Integer",
-                   "Zither total (unfiltered) BAM depth; deletions excluded",
-                   lambda pileup_stats: pileup_stats.total_depth)
+total_dp = _Tag("ZTDP", "1", "Integer",
+                "Zither total (unfiltered) BAM depth; deletions excluded",
+                lambda pileup_stats: pileup_stats.total_depth)
 total_af = _Tag("ZTAF", "A", "Float",
                 ("Zither total (unfiltered) BAM alt frequency; "
                  "(alt count/total count) rounded to 6 decimals"),
                 lambda pileup_stats: pileup_stats.total_af)
-filtered_depth = _Tag("ZFDP", "1", "Integer",
-                      "Zither filtered BAM depth; deletions excluded",
-                      lambda pileup_stats: pileup_stats.filtered_depth)
+filtered_dp = _Tag("ZFDP", "1", "Integer",
+                   "Zither filtered BAM depth; deletions excluded",
+                   lambda pileup_stats: pileup_stats.filtered_depth)
 filtered_af = _Tag("ZFAF", "A", "Float",
                    ("Zither filtered BAM alt frequency; "
                     "(alt count/total count) rounded to 6 decimals"),
                    lambda pileup_stats: pileup_stats.filtered_af)
+total_dp_acgt = _Tag("ZTDP_ACGT", "4", "Integer",
+                     ("Zither total (unfiltered) BAM depths for A,C,G,T;"
+                      " deletions excluded"),
+                     lambda pileup_stats: pileup_stats.total_depth_acgt)
+filtered_dp_acgt = _Tag("ZFDP_ACGT", "4", "Integer",
+                        ("Zither filtered BAM depths for A,C,G,T;"
+                         " deletions excluded"),
+                        lambda pileup_stats: pileup_stats.filtered_depth_acgt)
 
-DEFAULT_TAGS = [total_depth, total_af, filtered_depth, filtered_af]
+
+DEFAULT_TAGS = [total_dp,
+                total_dp_acgt,
+                total_af,
+                filtered_dp,
+                filtered_dp_acgt,
+                filtered_af]
 
 
 def _build_execution_context(argv):

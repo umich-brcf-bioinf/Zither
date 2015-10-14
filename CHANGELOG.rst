@@ -4,6 +4,7 @@ Changelog
 0.3 (MM/DD/YYYY)
 ----------------
 - Adjusted to support mult-alt SNPs
+- Added ACGT base depth tags
 
 0.2 (9/3/2015)
 --------------
