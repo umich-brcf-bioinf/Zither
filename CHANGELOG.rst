@@ -1,9 +1,9 @@
 Changelog
 =========
 
-0.2X (MM/DD/YYYY)
+0.3 (MM/DD/YYYY)
 ----------------
-
+- Adjusted to support mult-alt SNPs
 
 0.2 (9/3/2015)
 --------------

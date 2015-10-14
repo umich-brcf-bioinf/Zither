@@ -142,13 +142,26 @@ class _PileupStats(object):
          self.filtered_af) = self._init_depth_freq(ref, alt, filtered_acgt)
 
     @staticmethod
-    def _init_depth_freq(ref, alt, acgt):
-        alt = alt.upper()
+    def _is_snp(ref, alt):
+        if len(ref) != 1:
+            return False
+        if len(alt) == 1:
+            return True
+        if max(len(x) for x in alt.split(",")) == 1:
+            return True
+        return False
+
+    @staticmethod
+    def _init_depth_freq(ref, alts, acgt):
+        alts = alts.upper()
         freq = _NULL
         depth = sum(acgt.values())
         try:
-            if depth and len(ref) == 1 and len(alt) == 1:
-                freq = _round_digits(acgt[alt]/depth)
+            if depth and _PileupStats._is_snp(ref, alts):
+                freqs = []
+                for alt in alts.split(","):
+                    freqs.append(_round_digits(acgt[alt]/depth))
+                freq = ",".join(freqs)
         except KeyError:
             freq = _NULL
         return (depth, freq)
@@ -224,14 +237,14 @@ class _Tag(object):
 total_depth = _Tag("ZTDP", "1", "Integer",
                    "Zither total (unfiltered) BAM depth; deletions excluded",
                    lambda pileup_stats: pileup_stats.total_depth)
-total_af = _Tag("ZTAF", "1", "Float",
+total_af = _Tag("ZTAF", "A", "Float",
                 ("Zither total (unfiltered) BAM alt frequency; "
                  "(alt count/total count) rounded to 6 decimals"),
                 lambda pileup_stats: pileup_stats.total_af)
 filtered_depth = _Tag("ZFDP", "1", "Integer",
                       "Zither filtered BAM depth; deletions excluded",
                       lambda pileup_stats: pileup_stats.filtered_depth)
-filtered_af = _Tag("ZFAF", "1", "Float",
+filtered_af = _Tag("ZFAF", "A", "Float",
                    ("Zither filtered BAM alt frequency; "
                     "(alt count/total count) rounded to 6 decimals"),
                    lambda pileup_stats: pileup_stats.filtered_af)

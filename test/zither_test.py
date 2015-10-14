@@ -231,6 +231,13 @@ class PileupStats(ZitherBaseTestCase):
         self.assertEquals(15, stats.filtered_depth)
         self.assertAlmostEqual(2/15, float(stats.filtered_af), places=6)
 
+    def test_is_snp(self):
+        self.assertEquals(True, zither._PileupStats._is_snp("A", "C"))
+        self.assertEquals(False, zither._PileupStats._is_snp("AC", "A"))
+        self.assertEquals(False, zither._PileupStats._is_snp("A", "AC"))
+        self.assertEquals(True, zither._PileupStats._is_snp("A", "C,T"))
+        self.assertEquals(False, zither._PileupStats._is_snp("A", "C,CT"))
+
     def test_noDepth(self):
         coverage = {"A":0, "C":0, "G":0, "T":0}
         stats = zither._PileupStats("A", "C", coverage, coverage)
@@ -255,13 +262,19 @@ class PileupStats(ZitherBaseTestCase):
         self.assertEquals(15, stats.filtered_depth)
         self.assertEquals(".", stats.filtered_af)
 
-    def test_multaltReturnsNull(self):
+    def test_multaltReturnsList(self):
         coverage = {"A":1, "C":2, "G":4, "T":8}
         stats = zither._PileupStats("A", "C,G", coverage, coverage)
         self.assertEquals(15, stats.total_depth)
-        self.assertEquals(".", stats.total_af)
-        self.assertEquals(15, stats.filtered_depth)
-        self.assertEquals(".", stats.filtered_af)
+        mult_afs = stats.total_af.split(",")
+        self.assertEquals(2, len(mult_afs))
+        self.assertAlmostEqual(2/15, float(mult_afs[0]), places=6)
+        self.assertAlmostEqual(4/15, float(mult_afs[1]), places=6)
+
+        mult_afs = stats.filtered_af.split(",")
+        self.assertEquals(2, len(mult_afs))
+        self.assertAlmostEqual(2/15, float(mult_afs[0]), places=6)
+        self.assertAlmostEqual(4/15, float(mult_afs[1]), places=6)
 
 
 class TagTestCase(ZitherBaseTestCase):
