@@ -173,28 +173,38 @@ class _PileupStats(object):
                                           acgt.get("T",0))
         return (depth, depth_acgt, freq)
 
+
+def _basecall_quality_filter(basecall_quality_cutoff):
+    def include(read):
+        align = read.alignment
+        pos = read.query_position
+        basecall_qual = align.query_qualities[pos]
+        return basecall_qual >= basecall_quality_cutoff
+    return include
+
+
+
 class _BamReader(object):
     '''Reads pileup stats from BAM file. (Assumes BAM index is present.)'''
     def __init__(self,
                  bam_file_name,
-                 basecall_quality_cutoff,
-                 depth_cutoff):
+                 depth_cutoff,
+                 filter_include):
         self._bam_file_name = bam_file_name
-        self._basecall_quality_cutoff = basecall_quality_cutoff
         self._depth_cutoff = depth_cutoff + 1
+        self._filter_include = filter_include
         #pylint: disable=no-member
         self._bam_file = pysam.AlignmentFile(bam_file_name, "rb")
 
     def __eq__(self, other):
         return (isinstance(other,_BamReader) and
                 self._bam_file_name == other._bam_file_name and
-                self._basecall_quality_cutoff == other._basecall_quality_cutoff and
+                self._filter_include == other._filter_include and
                 self._depth_cutoff == other._depth_cutoff)
 
     def __hash__(self):
         return hash(self._bam_file_name)
 
-#TODO: (cgates): Consider refactor to filter method
     def get_pileup_stats(self, chrom, pos_one_based, ref, alt):
         total_acgt = defaultdict(int)
         filtered_acgt = defaultdict(int)
@@ -212,8 +222,9 @@ class _BamReader(object):
                     if not read.is_del:
                         base = align.query_sequence[pos].upper()
                         total_acgt[base] += 1
-                        basecall_qual = align.query_qualities[pos]
-                        if basecall_qual >= self._basecall_quality_cutoff:
+#                         basecall_qual = align.query_qualities[pos]
+#                         if basecall_qual >= self._basecall_quality_cutoff:
+                        if self._filter_include(read):
                             filtered_acgt[base] += 1
         except ValueError as samtools_error:
             if str(samtools_error).startswith("invalid reference"):
@@ -298,14 +309,14 @@ def _get_sample_names(input_vcf):
                     sample_names = column_fields[9:(n+1)]
         return sample_names
 
-def _build_reader_dict(sample_bam_mapping, args):
+def _build_reader_dict(sample_bam_mapping, filter_include, args):
     '''Given a sample name to bam path mapping, return dict of sample_name
     to BamReader'''
     readers_dict = OrderedDict()
     for (sample, bam_file) in sample_bam_mapping.items():
         readers_dict[sample] = _BamReader(bam_file,
-                                          int(args.basecall_quality_cutoff),
-                                          int(args.depth_cutoff))
+                                          depth_cutoff=int(args.depth_cutoff),
+                                          filter_include=filter_include)
     return readers_dict
 
 def _build_column_header_line(sample_names):
@@ -404,7 +415,10 @@ def main(command_line_args=None):
         execution_context = _build_execution_context(command_line_args)
         strategy = _get_sample_bam_strategy(args)
         sample_bam_mapping = strategy.build_sample_bam_mapping()
-        reader_dict = _build_reader_dict(sample_bam_mapping, args)
+        filter_include = _basecall_quality_filter(args.basecall_quality_cutoff)
+        reader_dict = _build_reader_dict(sample_bam_mapping,
+                                         filter_include,
+                                         args)
         _create_vcf(args.input_vcf, reader_dict, execution_context)
     except ZitherUsageError as usage_error:
         message = "Zither usage problem: {}".format(str(usage_error))
