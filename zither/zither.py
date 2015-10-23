@@ -173,7 +173,7 @@ class _PileupStats(object):
                                           acgt.get("T",0))
         return (depth, depth_acgt, freq)
 
-
+#TODO: (cgates) Add tests for this; add mapping_qual filter; adjust CHANGELOG
 def _basecall_quality_filter(basecall_quality_cutoff):
     def include(read):
         align = read.alignment
