@@ -46,6 +46,10 @@ _DEFAULT_DEPTH_CUTOFF = 100000
 _DEFAULT_BASECALL_QUALITY_CUTOFF = 20
 '''Bases below this quality will be ignored in filtered tag calculations.'''
 
+_DEFAULT_MAPPING_QUALITY_CUTOFF = 20
+'''Reads below this mapping quality will be ignored in filtered tag
+calculations.'''
+
 class ZitherException(Exception):
     """Base class for all run-time exceptions in this module."""
     def __init__(self, msg, *args):
@@ -167,13 +171,12 @@ class _PileupStats(object):
         except KeyError:
             freq = _NULL
 
-        depth_acgt = "{},{},{},{}".format(acgt.get("A",0),
-                                          acgt.get("C",0),
+        depth_acgt = "{},{},{},{}".format(acgt.get("A", 0),
+                                          acgt.get("C", 0),
                                           acgt.get("G", 0),
-                                          acgt.get("T",0))
+                                          acgt.get("T", 0))
         return (depth, depth_acgt, freq)
 
-#TODO: (cgates) Add tests for this; add mapping_qual filter; adjust CHANGELOG
 def _basecall_quality_filter(basecall_quality_cutoff):
     def include(read):
         align = read.alignment
@@ -182,7 +185,20 @@ def _basecall_quality_filter(basecall_quality_cutoff):
         return basecall_qual >= basecall_quality_cutoff
     return include
 
+def _mapping_quality_filter(mapping_quality_cutoff):
+    def include(read):
+        return read.alignment.mapping_quality >= mapping_quality_cutoff
+    return include
 
+def _build_filters(args):
+    filters = [_basecall_quality_filter(int(args.basecall_quality_cutoff)),
+               _mapping_quality_filter(int(args.mapping_quality_cutoff))]
+    def include(read):
+        for filter_include in filters:
+            if not filter_include(read):
+                return False
+        return True
+    return include
 
 class _BamReader(object):
     '''Reads pileup stats from BAM file. (Assumes BAM index is present.)'''
@@ -197,7 +213,7 @@ class _BamReader(object):
         self._bam_file = pysam.AlignmentFile(bam_file_name, "rb")
 
     def __eq__(self, other):
-        return (isinstance(other,_BamReader) and
+        return (isinstance(other, _BamReader) and
                 self._bam_file_name == other._bam_file_name and
                 self._filter_include == other._filter_include and
                 self._depth_cutoff == other._depth_cutoff)
@@ -398,13 +414,16 @@ and --mapping_file).'''))
                         default=_DEFAULT_BASECALL_QUALITY_CUTOFF,
                         help="minimum base-call quality to be included. "
                         "Defaults to " + str(_DEFAULT_BASECALL_QUALITY_CUTOFF))
+    parser.add_argument('--mapping_quality_cutoff',
+                        default=_DEFAULT_MAPPING_QUALITY_CUTOFF,
+                        help="minimum mapping quality to be included. "
+                        "Defaults to " + str(_DEFAULT_MAPPING_QUALITY_CUTOFF))
     parser.add_argument('--depth_cutoff',
                         default=_DEFAULT_DEPTH_CUTOFF,
                         help="maximum pileup depth for a given position. "
                         "Defaults to " + str(_DEFAULT_DEPTH_CUTOFF))
     args = parser.parse_args(arguments)
     return args
-
 
 def main(command_line_args=None):
     '''Zither entry point.'''
@@ -415,7 +434,7 @@ def main(command_line_args=None):
         execution_context = _build_execution_context(command_line_args)
         strategy = _get_sample_bam_strategy(args)
         sample_bam_mapping = strategy.build_sample_bam_mapping()
-        filter_include = _basecall_quality_filter(args.basecall_quality_cutoff)
+        filter_include = _build_filters(args)
         reader_dict = _build_reader_dict(sample_bam_mapping,
                                          filter_include,
                                          args)

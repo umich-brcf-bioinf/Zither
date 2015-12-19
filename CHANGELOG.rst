@@ -3,6 +3,7 @@ Changelog
 
 0.3 (MM/DD/YYYY)
 ----------------
+- Added mapping quality filtering
 - Adjusted to support mult-alt SNPs
 - Added ACGT base depth tags
 

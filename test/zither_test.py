@@ -5,6 +5,7 @@ from collections import OrderedDict
 import datetime
 import os
 import pysam
+import re
 import sys
 from testfixtures.tempdirectory import TempDirectory
 import time
@@ -131,8 +132,9 @@ class ZitherBaseTestCase(unittest.TestCase):
             if expected[i].startswith("##zither=<"):
                 self.assertStartsWith(actual[i], "##zither=<")
             else:
-                self.assertEquals(expected[i].rstrip(),
-                                  actual[i].rstrip())
+                split_pattern = re.compile("[\t:]")
+                self.assertEquals(split_pattern.split(expected[i].rstrip()),
+                                  split_pattern.split(actual[i].rstrip()))
 
 
 class ExplicitBamFileStrategyTestCase(ZitherBaseTestCase):
@@ -765,6 +767,14 @@ readNameA	{}	chr10	5	0	5M	=	105	0	AAAAA	>>>>>
                                                    alt="A")
             self.assertEquals(0, actual_stats.total_depth)
 
+class MicroMock(object):
+    def __init__(self, **kwargs):
+        self.__dict__.update(kwargs)
+
+class MockPileupColumn(object):
+    def __init__(self, query_position, **kwargs):
+        self.query_position = query_position
+        self.alignment = MicroMock(**kwargs)
 
 class ZitherTestCase(ZitherBaseTestCase):
     def test_default_tags(self):
@@ -776,6 +786,45 @@ class ZitherTestCase(ZitherBaseTestCase):
         self.assertIn("ZFAF", tag_ids)
         self.assertIn("ZFDP_ACGT", tag_ids)
         self.assertEquals(6, len(zither.DEFAULT_TAGS))
+
+    def test_basecall_quality_filter(self):
+        include = zither._basecall_quality_filter(basecall_quality_cutoff=15)
+        read = MockPileupColumn(query_position=0, query_qualities=[14])
+        self.assertEquals(False, include(read))
+        read = MockPileupColumn(query_position=0, query_qualities=[15])
+        self.assertEquals(True, include(read))
+        read = MockPileupColumn(query_position=0, query_qualities=[16])
+        self.assertEquals(True, include(read))
+
+    def test_mapping_quality_filter(self):
+        include = zither._mapping_quality_filter(mapping_quality_cutoff=15)
+        read = MockPileupColumn(query_position=None, mapping_quality=14)
+        self.assertEquals(False, include(read))
+        read = MockPileupColumn(query_position=None, mapping_quality=15)
+        self.assertEquals(True, include(read))
+        read = MockPileupColumn(query_position=None, mapping_quality=16)
+        self.assertEquals(True, include(read))
+
+    def test_build_filters(self):
+        args = Namespace(basecall_quality_cutoff=8,
+                         mapping_quality_cutoff=16)
+        actual_filter_include = zither._build_filters(args)
+        read = MockPileupColumn(query_position=0,
+                                query_qualities=[8],
+                                mapping_quality=16)
+        self.assertEquals(True, actual_filter_include(read))
+        read = MockPileupColumn(query_position=0,
+                                query_qualities=[7],
+                                mapping_quality=16)
+        self.assertEquals(False, actual_filter_include(read))
+        read = MockPileupColumn(query_position=0,
+                                query_qualities=[8],
+                                mapping_quality=15)
+        self.assertEquals(False, actual_filter_include(read))
+        read = MockPileupColumn(query_position=0,
+                                query_qualities=[7],
+                                mapping_quality=15)
+        self.assertEquals(False, actual_filter_include(read))
 
     def test_parse_command_line_args_raisesUsageErrorOnMissingArgs(self):
         #two regex below because lib changed from py2 to py3
@@ -794,8 +843,9 @@ class ZitherTestCase(ZitherBaseTestCase):
         self.assertEquals("bam_value", args.bam)
         self.assertEquals("mapping_file_value", args.mapping_file)
         self.assertEquals(20, args.basecall_quality_cutoff)
+        self.assertEquals(20, args.mapping_quality_cutoff)
         self.assertEquals(100000, args.depth_cutoff)
-        self.assertEquals(5, len(vars(args)))
+        self.assertEquals(6, len(vars(args)))
 
     def test_build_execution_context(self):
         argv = ["zither", "foo", "bar", "baz"]
@@ -1010,9 +1060,9 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             sample_reader_dict = {"sample_A": zither._BamReader(bam_A,
                                                                 800,
                                                                 filter_include)}
-            execution_context=OrderedDict([("foo", "A"),
-                                           ("bar", "B"),
-                                           ("baz", "C")])
+            execution_context = OrderedDict([("foo", "A"),
+                                             ("bar", "B"),
+                                             ("baz", "C")])
 
             zither._create_vcf(input_vcf, sample_reader_dict, execution_context)
 
@@ -1063,8 +1113,8 @@ readA	99	chr1	10	0	1M	=	105	0	A	>
             bam_B = _create_bam(tmp_path, "sample_1.sam", sam_contents)
             filter_include = lambda x: True
 
-            sample_bam_mapping = OrderedDict([('sX', bam_A),('s1', bam_B)])
-            args = Namespace(basecall_quality_cutoff = 0, depth_cutoff=8000)
+            sample_bam_mapping = OrderedDict([('sX', bam_A), ('s1', bam_B)])
+            args = Namespace(basecall_quality_cutoff=0, depth_cutoff=8000)
             actual_mapping = zither._build_reader_dict(sample_bam_mapping,
                                                        filter_include,
                                                        args)
@@ -1109,7 +1159,8 @@ class ZitherFunctionalTestCase(ZitherBaseTestCase):
                                    "explicit_bam",
                                    "input.vcf"),
                 "--bam",
-                _absolute_base_dir("examples", "explicit_bam", "sample_X.bam")]
+                _absolute_base_dir("examples", "explicit_bam", "sample_X.bam"),
+                "--mapping_quality_cutoff", "0"]
         expected_vcf_filename = _absolute_base_dir("examples",
                                                    "explicit_bam",
                                                    "expected_output.vcf")
@@ -1136,11 +1187,12 @@ class ZitherFunctionalTestCase(ZitherBaseTestCase):
 
     def test_main_mapping_file(self):
         args = ["zither",
-                _absolute_base_dir("examples", "mapping_files", "input.vcf") ,
+                _absolute_base_dir("examples", "mapping_files", "input.vcf"),
                 "--mapping_file",
                 _absolute_base_dir("examples",
                                    "mapping_files",
-                                   "mapping_file.txt")]
+                                   "mapping_file.txt"),
+                ]
         expected_vcf_filename = _absolute_base_dir("examples",
                                                    "mapping_files",
                                                    "expected_output.vcf")
